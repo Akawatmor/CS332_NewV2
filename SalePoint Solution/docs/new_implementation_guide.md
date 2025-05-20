@@ -13,7 +13,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 6. [API Gateway Setup](#step-6)
 7. [Web Application Setup](#step-7)
 8. [Database Initialization](#step-8)
-9. [Amazon QuickSight Dashboard](#step-9)
+9. [Reporting & Visualization in AWS Academy Learner Lab](#step-9)
 10. [Web App Hosting on S3](#step-10)
 11. [Testing](#step-11)
 12. [Cleanup](#step-12)
@@ -349,15 +349,49 @@ ALTER TABLE `Sales`
 ---
 
 <a id="step-9"></a>
-## 9. Amazon QuickSight Dashboard
-1. Go to **QuickSight** console.
-2. If new, follow the setup wizard (choose Enterprise edition).
-3. Grant access to your RDS and S3.
-4. Create a new dataset:
-   - Source: RDS
-   - Connect to `salepoint-rds`, select tables
-5. Create visualizations (bar, line, pie charts, etc.) as needed.
-6. Save and publish your dashboard.
+## 9. Reporting & Visualization in AWS Academy Learner Lab
+
+> **Note:** Amazon QuickSight is not available in AWS Academy Learner Lab with LabRole. Use one of the following alternatives for reporting and visualization:
+
+### Option 1: Export Data to S3 and Visualize Locally
+1. Use your Lambda functions or a script to export data from RDS or DynamoDB to CSV files.
+2. Upload the CSV files to your S3 bucket.
+3. Download the CSV files to your computer.
+4. Open the files in Excel or Google Sheets to create charts and dashboards.
+
+#### Example: Exporting MySQL Table to CSV (from your Mac)
+```zsh
+mysql -h <RDS-endpoint> -u admin -p salepointdb -e "SELECT * FROM sales;" > sales.csv
+```
+Then upload `sales.csv` to S3 or open in Excel/Google Sheets.
+
+### Option 2: Build a Custom Web Dashboard
+1. In your SalePoint web application, add a new page (e.g., `dashboard.html`).
+2. Use JavaScript chart libraries (e.g., Chart.js, Google Charts) to visualize data.
+3. Fetch data from your API endpoints and display charts such as:
+   - Sales by representative (bar chart)
+   - Sales over time (line chart)
+   - Inventory levels by product (bar chart)
+   - Top selling products (pie chart)
+   - Sales status breakdown (donut chart)
+
+#### Example: Using Chart.js in dashboard.html
+```html
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<canvas id="salesChart"></canvas>
+<script>
+fetch('https://your-api-gateway-url.amazonaws.com/prod/sales')
+  .then(res => res.json())
+  .then(data => {
+    // Process data and render chart
+    new Chart(document.getElementById('salesChart'), { /* ...chart config... */ });
+  });
+</script>
+```
+
+### Option 3: Use CloudWatch Logs Insights (for log-based queries)
+1. Go to the CloudWatch console.
+2. Use Logs Insights to query Lambda logs for basic reporting.
 
 ---
 
