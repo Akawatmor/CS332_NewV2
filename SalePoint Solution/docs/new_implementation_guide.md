@@ -20,7 +20,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-1"></a>
+<a id="step-1"></a>
 ## 1. AWS Account & Environment Preparation
 - Log in to AWS Academy Learner Lab.
 - Use a modern web browser (Chrome, Edge, Safari, etc.).
@@ -28,7 +28,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-2"></a>
+<a id="step-2"></a>
 ## 2. VPC & Networking
 1. Go to the AWS Console search bar, type "VPC" and open the VPC Dashboard.
 2. Check if a "default VPC" exists in your region (it will be named "default").
@@ -36,7 +36,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-3"></a>
+<a id="step-3"></a>
 ## 3. Database Setup (RDS & DynamoDB)
 
 ### 3.1 Create Amazon RDS (MySQL) Database
@@ -105,7 +105,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-4"></a>
+<a id="step-4"></a>
 ## 4. Storage Setup (S3)
 
 ### 4.1 Create S3 Bucket for Product Files
@@ -146,7 +146,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-5"></a>
+<a id="step-5"></a>
 ## 5. Lambda Functions & Layers
 
 ### 5.1 Prepare MySQL Layer for Lambda
@@ -193,7 +193,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-6"></a>
+<a id="step-6"></a>
 ## 6. API Gateway Setup
 
 ### 6.1 Create REST API
@@ -223,7 +223,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-7"></a>
+<a id="step-7"></a>
 ## 7. Web Application Setup
 
 ### 7.1 Prepare Files
@@ -237,7 +237,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-8"></a>
+<a id="step-8"></a>
 ## 8. Database Initialization
 
 ### 8.1 Connect to RDS and Run SQL
@@ -254,7 +254,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-9"></a>
+<a id="step-9"></a>
 ## 9. Amazon QuickSight Dashboard
 1. Go to **QuickSight** console.
 2. If new, follow the setup wizard (choose Enterprise edition).
@@ -267,7 +267,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-10"></a>
+<a id="step-10"></a>
 ## 10. Web App Hosting on S3
 
 ### 10.1 Create S3 Bucket for Web Hosting
@@ -292,7 +292,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-11"></a>
+<a id="step-11"></a>
 ## 11. Testing
 1. Open your S3 website URL in a browser.
 2. Test:
@@ -304,7 +304,7 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
-<a name="step-12"></a>
+<a id="step-12"></a>
 ## 12. Cleanup
 1. Delete S3 buckets (empty them first).
 2. Delete Lambda functions.
