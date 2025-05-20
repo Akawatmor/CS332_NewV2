@@ -193,6 +193,43 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
 
 ---
 
+## Lambda Function Example Code
+
+### GetProductInfo Lambda (Node.js)
+```javascript
+const mysql = require('mysql');
+const AWS = require('aws-sdk');
+const s3 = new AWS.S3();
+
+exports.handler = async (event) => {
+    // Your code here
+};
+```
+
+### CustomerSalesRepTracking Lambda (Node.js)
+```javascript
+const mysql = require('mysql');
+const AWS = require('aws-sdk');
+const s3 = new AWS.S3();
+
+exports.handler = async (event) => {
+    // Your code here
+};
+```
+
+### SalesTracking Lambda (Node.js)
+```javascript
+const mysql = require('mysql');
+const AWS = require('aws-sdk');
+const s3 = new AWS.S3();
+
+exports.handler = async (event) => {
+    // Your code here
+};
+```
+
+---
+
 <a id="step-6"></a>
 ## 6. API Gateway Setup
 
@@ -251,6 +288,63 @@ This guide will help you set up the SalePoint Solution in AWS Academy Learner La
    mysql -h <RDS-endpoint> -u admin -p salepointdb
    ```
 4. Paste and run the SQL from `src/db/database_init.sql`.
+
+---
+
+## SQL Database Initialization Script
+```sql
+CREATE TABLE IF NOT EXISTS `Customers` (
+  `CustomerID` varchar(255) NOT NULL,
+  `Name` varchar(255) DEFAULT NULL,
+  `Email` varchar(255) DEFAULT NULL,
+  `Phone` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`CustomerID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `SalesReps` (
+  `SalesRepID` varchar(255) NOT NULL,
+  `Name` varchar(255) DEFAULT NULL,
+  `Email` varchar(255) DEFAULT NULL,
+  `Phone` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`SalesRepID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `Products` (
+  `ProductID` varchar(255) NOT NULL,
+  `Name` varchar(255) DEFAULT NULL,
+  `Description` text DEFAULT NULL,
+  `Price` decimal(10,2) DEFAULT NULL,
+  PRIMARY KEY (`ProductID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `Sales` (
+  `SaleID` varchar(255) NOT NULL,
+  `ProductID` varchar(255) DEFAULT NULL,
+  `CustomerID` varchar(255) DEFAULT NULL,
+  `SalesRepID` varchar(255) DEFAULT NULL,
+  `Timestamp` datetime DEFAULT NULL,
+  `Amount` decimal(10,2) DEFAULT NULL,
+  PRIMARY KEY (`SaleID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE `Sales`
+  ADD CONSTRAINT `fk_product`
+  FOREIGN KEY (`ProductID`)
+  REFERENCES `Products` (`ProductID`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `Sales`
+  ADD CONSTRAINT `fk_customer`
+  FOREIGN KEY (`CustomerID`)
+  REFERENCES `Customers` (`CustomerID`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `Sales`
+  ADD CONSTRAINT `fk_salesrep`
+  FOREIGN KEY (`SalesRepID`)
+  REFERENCES `SalesReps` (`SalesRepID`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+```
 
 ---
 
