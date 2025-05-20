@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales - SalePoint Solution</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">SalePoint</a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ml-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="index.html">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="products.html">Products</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="customers.html">Customers</a>
+                    </li>
+                    <li class="nav-item active">
+                        <a class="nav-link" href="sales.html">Sales</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="dashboard.html">Dashboard</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h1>Sales Management</h1>
+        
+        <ul class="nav nav-tabs" id="salesTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <a class="nav-link active" id="new-sale-tab" data-toggle="tab" href="#new-sale" role="tab">New Sale</a>
+            </li>
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="sales-history-tab" data-toggle="tab" href="#sales-history" role="tab">Sales History</a>
+            </li>
+        </ul>
+        
+        <div class="tab-content pt-4" id="salesTabContent">
+            <!-- New Sale Tab -->
+            <div class="tab-pane fade show active" id="new-sale" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0">Create New Sale</h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- Customer Selection -->
+                                <div class="form-group">
+                                    <label for="customer-select">Select Customer:</label>
+                                    <select class="form-control" id="customer-select" required>
+                                        <option value="">Select a customer</option>
+                                        <!-- Customers will be loaded dynamically -->
+                                    </select>
+                                </div>
+                                
+                                <!-- Sales Rep Selection -->
+                                <div class="form-group">
+                                    <label for="sales-rep-select">Select Sales Representative:</label>
+                                    <select class="form-control" id="sales-rep-select" required>
+                                        <option value="">Select a sales rep</option>
+                                        <!-- Sales reps will be loaded dynamically -->
+                                    </select>
+                                </div>
+                                
+                                <!-- Product Search -->
+                                <div class="form-group">
+                                    <label>Add Products:</label>
+                                    <div class="input-group">
+                                        <input type="text" id="product-search" class="form-control" placeholder="Search products...">
+                                        <div class="input-group-append">
+                                            <button class="btn btn-outline-secondary" type="button" id="product-search-btn">Search</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Product Search Results -->
+                                <div id="product-search-results" class="mb-4" style="display: none;">
+                                    <h6>Search Results:</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>ID</th>
+                                                    <th>Name</th>
+                                                    <th>Price</th>
+                                                    <th>Stock</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="product-results-body">
+                                                <!-- Search results will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                
+                                <!-- Selected Products -->
+                                <h6>Selected Products:</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Name</th>
+                                                <th>Price</th>
+                                                <th>Quantity</th>
+                                                <th>Total</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="selected-products-body">
+                                            <!-- Selected products will be loaded here -->
+                                            <tr id="empty-cart-row">
+                                                <td colspan="6" class="text-center">No products selected</td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <th colspan="4" class="text-right">Total:</th>
+                                                <th id="total-amount">$0.00</th>
+                                                <th></th>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                                
+                                <!-- Notes -->
+                                <div class="form-group">
+                                    <label for="sale-notes">Notes:</label>
+                                    <textarea class="form-control" id="sale-notes" rows="2"></textarea>
+                                </div>
+                                
+                                <!-- Submit Button -->
+                                <button type="button" id="submit-sale-btn" class="btn btn-success btn-lg btn-block">
+                                    Complete Sale
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Sale Summary</h5>
+                            </div>
+                            <div class="card-body">
+                                <p><strong>Customer:</strong> <span id="summary-customer">Not selected</span></p>
+                                <p><strong>Sales Rep:</strong> <span id="summary-sales-rep">Not selected</span></p>
+                                <p><strong>Products:</strong> <span id="summary-product-count">0</span></p>
+                                <p><strong>Total Amount:</strong> <span id="summary-total">$0.00</span></p>
+                                <hr>
+                                <div class="alert alert-info">
+                                    <small>
+                                        <i class="fas fa-info-circle"></i> 
+                                        Product inventory will be automatically updated when the sale is completed.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Sales History Tab -->
+            <div class="tab-pane fade" id="sales-history" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="sales-filter">Filter by Status:</label>
+                            <select id="sales-filter" class="form-control">
+                                <option value="">All Sales</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="date-filter">Filter by Date:</label>
+                            <select id="date-filter" class="form-control">
+                                <option value="">All Dates</option>
+                                <option value="today">Today</option>
+                                <option value="week">This Week</option>
+                                <option value="month">This Month</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="sales-search">Search:</label>
+                            <input type="text" id="sales-search" class="form-control" placeholder="Search by ID or customer...">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Sales Table -->
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="thead-dark">
+                            <tr>
+                                <th>Sale ID</th>
+                                <th>Date</th>
+                                <th>Customer</th>
+                                <th>Sales Rep</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sales-table-body">
+                            <!-- Sales data will be loaded here dynamically -->
+                            <tr>
+                                <td colspan="7" class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="sr-only">Loading...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Sale Details Modal -->
+        <div class="modal fade" id="saleDetailsModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="saleDetailsTitle">Sale Details</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Sale Information</h6>
+                                <p><strong>Sale ID:</strong> <span id="detail-sale-id"></span></p>
+                                <p><strong>Date:</strong> <span id="detail-date"></span></p>
+                                <p><strong>Customer:</strong> <span id="detail-customer"></span></p>
+                                <p><strong>Sales Rep:</strong> <span id="detail-sales-rep"></span></p>
+                                <p><strong>Status:</strong> <span id="detail-status" class="badge"></span></p>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Update Status</h6>
+                                <div class="form-group">
+                                    <select class="form-control" id="update-sale-status">
+                                        <option value="Pending">Pending</option>
+                                        <option value="Completed">Completed</option>
+                                        <option value="Cancelled">Cancelled</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-info btn-sm" id="update-sale-status-btn">Update Status</button>
+                                
+                                <hr>
+                                <div class="form-group">
+                                    <label for="sale-detail-notes">Notes:</label>
+                                    <textarea class="form-control" id="sale-detail-notes" rows="3"></textarea>
+                                </div>
+                                <button class="btn btn-info btn-sm" id="save-sale-notes-btn">Save Notes</button>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <h6>Products</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Product ID</th>
+                                        <th>Name</th>
+                                        <th>Price</th>
+                                        <th>Quantity</th>
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sale-products-table">
+                                    <!-- Products will be loaded here dynamically -->
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <th colspan="4" class="text-right">Total:</th>
+                                        <th id="sale-detail-total">$0.00</th>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-danger" id="delete-sale-btn">Delete Sale</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-light py-4 mt-5">
+        <div class="container text-center">
+            <p>© 2025 SalePoint Solution. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/js/all.min.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/sales.js"></script>
+</body>
+</html>

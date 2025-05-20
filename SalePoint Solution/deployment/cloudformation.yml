@@ -1,0 +1,684 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SalePoint Solution - CloudFormation template for deploying the complete solution stack'
+
+Parameters:
+  # Environment parameters
+  Environment:
+    Description: Environment (dev, test, prod)
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  
+  # Database parameters
+  DBName:
+    Description: Database name
+    Type: String
+    Default: salepoint_db
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9_]*'
+  
+  DBUsername:
+    Description: Database admin username
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  
+  DBPassword:
+    Description: Database admin password
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: '[a-zA-Z0-9]*'
+  
+  # S3 parameters
+  S3BucketName:
+    Description: Name of S3 bucket for storing documents and images
+    Type: String
+    Default: salepoint-documents
+
+  # API Gateway parameters
+  ApiGatewayStageName:
+    Description: API Gateway stage name
+    Type: String
+    Default: prod
+    AllowedPattern: '[a-zA-Z0-9]+'
+
+Resources:
+  #############################################
+  # S3 Resources
+  #############################################
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3600
+      VersioningConfiguration:
+        Status: Enabled
+  
+  WebAppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'salepoint-webapp-${Environment}'
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+  
+  WebAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebAppBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${WebAppBucket}/*'
+
+  #############################################
+  # VPC and Network Resources
+  #############################################
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-VPC-${Environment}'
+  
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-PublicSubnet1-${Environment}'
+  
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-PublicSubnet2-${Environment}'
+  
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.3.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-PrivateSubnet1-${Environment}'
+  
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.4.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-PrivateSubnet2-${Environment}'
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-IGW-${Environment}'
+  
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-PublicRT-${Environment}'
+  
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-PrivateRT-${Environment}'
+  
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+  
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  #############################################
+  # Security Groups
+  #############################################
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+  
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda functions
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  #############################################
+  # RDS Resources
+  #############################################
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for SalePoint RDS
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+  
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Ref DBName
+      Engine: mysql
+      EngineVersion: 8.0.28
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: db.t3.small
+      AllocatedStorage: 20
+      StorageType: gp2
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt RDSSecurityGroup.GroupId
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub 'SalePoint-RDS-${Environment}'
+
+  #############################################
+  # DynamoDB Resources
+  #############################################
+  SalesTrackingTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'SalesTracking-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: SaleID
+          AttributeType: S
+        - AttributeName: CustomerID
+          AttributeType: S
+        - AttributeName: SalesRepID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: SaleID
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CustomerID-index
+          KeySchema:
+            - AttributeName: CustomerID
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: SalesRepID-index
+          KeySchema:
+            - AttributeName: SalesRepID
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  #############################################
+  # Lambda IAM Role and Permissions
+  #############################################
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt SalesTrackingTable.Arn
+                  - !Sub '${SalesTrackingTable.Arn}/index/*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${DocumentsBucket}'
+                  - !Sub 'arn:aws:s3:::${DocumentsBucket}/*'
+
+  #############################################
+  # Lambda Functions
+  #############################################
+  GetProductInfoFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'salepoint-getProductInfo-${Environment}'
+      Runtime: nodejs14.x
+      Handler: getProductInfo.handler
+      Code:
+        S3Bucket: !Ref DocumentsBucket
+        S3Key: lambda/getProductInfo.zip
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt RDSInstance.Endpoint.Address
+          DB_PORT: !GetAtt RDSInstance.Endpoint.Port
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUsername
+          DB_PASSWORD: !Ref DBPassword
+          ENVIRONMENT: !Ref Environment
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+  
+  CustomerSalesRepTrackingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'salepoint-customerSalesRepTracking-${Environment}'
+      Runtime: nodejs14.x
+      Handler: customerSalesRepTracking.handler
+      Code:
+        S3Bucket: !Ref DocumentsBucket
+        S3Key: lambda/customerSalesRepTracking.zip
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt RDSInstance.Endpoint.Address
+          DB_PORT: !GetAtt RDSInstance.Endpoint.Port
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUsername
+          DB_PASSWORD: !Ref DBPassword
+          ENVIRONMENT: !Ref Environment
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+  
+  SalesTrackingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'salepoint-salesTracking-${Environment}'
+      Runtime: nodejs14.x
+      Handler: salesTracking.handler
+      Code:
+        S3Bucket: !Ref DocumentsBucket
+        S3Key: lambda/salesTracking.zip
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt RDSInstance.Endpoint.Address
+          DB_PORT: !GetAtt RDSInstance.Endpoint.Port
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUsername
+          DB_PASSWORD: !Ref DBPassword
+          DYNAMODB_TABLE: !Ref SalesTrackingTable
+          ENVIRONMENT: !Ref Environment
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+  #############################################
+  # API Gateway
+  #############################################
+  SalePointApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'SalePoint-API-${Environment}'
+      Description: API for SalePoint Solution
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+  
+  ProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ParentId: !GetAtt SalePointApi.RootResourceId
+      PathPart: 'products'
+  
+  ProductResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ParentId: !Ref ProductsResource
+      PathPart: '{productId}'
+  
+  CustomersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ParentId: !GetAtt SalePointApi.RootResourceId
+      PathPart: 'customers'
+  
+  CustomerResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ParentId: !Ref CustomersResource
+      PathPart: '{customerId}'
+  
+  SalesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ParentId: !GetAtt SalePointApi.RootResourceId
+      PathPart: 'sales'
+  
+  SaleResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ParentId: !Ref SalesResource
+      PathPart: '{saleId}'
+  
+  # GET /products
+  GetProductsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref ProductsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetProductInfoFunction.Arn}/invocations'
+  
+  # GET /products/{productId}
+  GetProductMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref ProductResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetProductInfoFunction.Arn}/invocations'
+  
+  # GET /customers
+  GetCustomersMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref CustomersResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomerSalesRepTrackingFunction.Arn}/invocations'
+  
+  # GET /customers/{customerId}
+  GetCustomerMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref CustomerResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomerSalesRepTrackingFunction.Arn}/invocations'
+  
+  # PUT /customers/{customerId}
+  UpdateCustomerMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref CustomerResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomerSalesRepTrackingFunction.Arn}/invocations'
+  
+  # GET /sales
+  GetSalesMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref SalesResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesTrackingFunction.Arn}/invocations'
+  
+  # POST /sales
+  CreateSaleMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref SalesResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesTrackingFunction.Arn}/invocations'
+  
+  # GET /sales/{saleId}
+  GetSaleMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref SaleResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesTrackingFunction.Arn}/invocations'
+  
+  # PUT /sales/{saleId}
+  UpdateSaleMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref SaleResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesTrackingFunction.Arn}/invocations'
+  
+  # DELETE /sales/{saleId}
+  DeleteSaleMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref SalePointApi
+      ResourceId: !Ref SaleResource
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesTrackingFunction.Arn}/invocations'
+  
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - GetProductsMethod
+      - GetProductMethod
+      - GetCustomersMethod
+      - GetCustomerMethod
+      - UpdateCustomerMethod
+      - GetSalesMethod
+      - CreateSaleMethod
+      - GetSaleMethod
+      - UpdateSaleMethod
+      - DeleteSaleMethod
+    Properties:
+      RestApiId: !Ref SalePointApi
+      StageName: !Ref ApiGatewayStageName
+  
+  # Lambda Permissions
+  LambdaGetProductInfoPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GetProductInfoFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SalePointApi}/*'
+  
+  LambdaCustomerSalesRepTrackingPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CustomerSalesRepTrackingFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SalePointApi}/*'
+  
+  LambdaSalesTrackingPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SalesTrackingFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SalePointApi}/*'
+
+  #############################################
+  # QuickSight Resources (placeholder - would require additional setup)
+  #############################################
+  # Note: QuickSight resources are typically configured manually or
+  # through the AWS CLI/SDK as CloudFormation support is limited
+
+Outputs:
+  WebsiteURL:
+    Description: URL for the SalePoint web application
+    Value: !GetAtt WebAppBucket.WebsiteURL
+  
+  ApiEndpoint:
+    Description: URL for the SalePoint API Gateway endpoint
+    Value: !Sub 'https://${SalePointApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiGatewayStageName}'
+  
+  RDSEndpoint:
+    Description: Connection endpoint for the RDS instance
+    Value: !GetAtt RDSInstance.Endpoint.Address
+  
+  SalesTrackingTableName:
+    Description: Name of the DynamoDB table for sales tracking
+    Value: !Ref SalesTrackingTable
+  
+  DocumentsBucketName:
+    Description: Name of the S3 bucket for storing documents and images
+    Value: !Ref DocumentsBucket
