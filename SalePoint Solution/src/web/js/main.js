@@ -2,7 +2,7 @@
 
 // API Configuration
 const API_CONFIG = {
-    baseUrl: 'https://your-api-gateway-url.amazonaws.com/prod', // Replace with your actual API Gateway URL
+    baseUrl: 'https://ptlihjst6b.execute-api.us-east-1.amazonaws.com/prod', // Replace with your actual API Gateway URL
     apiKey: '' // If using API keys for security
 };
 
