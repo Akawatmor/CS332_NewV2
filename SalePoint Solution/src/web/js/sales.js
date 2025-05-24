@@ -108,29 +108,34 @@ function setupEventListeners() {
  * Load customers and sales representatives data
  */
 function loadCustomersAndSalesReps() {
-    // In a real implementation, this would fetch from the API
-    // For demonstration, we'll use simulated data first
-    
-    // Simulate API call to get customers
+    // Load customers from real API
     makeApiCall('GET', '/customers', null)
         .then(data => {
-            customersCache = data;
-            populateCustomerSelect(data);
+            if (data && Array.isArray(data)) {
+                customersCache = data;
+                populateCustomerSelect(data);
+            } else {
+                throw new Error('Invalid customers data received');
+            }
         })
         .catch(error => {
             console.error('Error loading customers:', error);
-            showNotification('Error loading customers data', 'danger');
+            showNotification('Failed to load customers. Please check your connection.', 'danger');
         });
     
-    // Simulate API call to get sales reps
+    // Load sales reps from real API
     makeApiCall('GET', '/salesreps', null)
         .then(data => {
-            salesRepsCache = data;
-            populateSalesRepSelect(data);
+            if (data && Array.isArray(data)) {
+                salesRepsCache = data;
+                populateSalesRepSelect(data);
+            } else {
+                throw new Error('Invalid sales representatives data received');
+            }
         })
         .catch(error => {
             console.error('Error loading sales reps:', error);
-            showNotification('Error loading sales representatives data', 'danger');
+            showNotification('Failed to load sales representatives. Please check your connection.', 'danger');
         });
 }
 
@@ -221,15 +226,20 @@ function searchProducts() {
     // Show loading state
     $('#product-search-btn').html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>');
     
-    // In a real implementation, this would search via the API
+    // Use real API for product search
     makeApiCall('GET', `/products?search=${encodeURIComponent(searchTerm)}`, null)
         .then(data => {
-            productSearchResults = data;
-            displayProductSearchResults(data);
+            if (data && Array.isArray(data)) {
+                productSearchResults = data;
+                displayProductSearchResults(data);
+            } else {
+                throw new Error('Invalid product data received');
+            }
         })
         .catch(error => {
             console.error('Error searching products:', error);
-            showNotification('Error searching for products', 'danger');
+            showNotification('Failed to search products. Please check your connection.', 'danger');
+            $('#product-results-body').html('<tr><td colspan="5" class="text-center text-danger">Error loading products</td></tr>');
         })
         .finally(() => {
             // Restore button text
@@ -476,24 +486,30 @@ function submitSale() {
         totalAmount: calculateTotal(),
         notes: currentSale.notes
     };
-    
-    // In a real implementation, this would submit to the API
+      // Submit to real API
     makeApiCall('POST', '/sales', saleData)
         .then(response => {
-            showNotification('Sale successfully created!', 'success');
-            
-            // Reset the form
-            resetSaleForm();
-            
-            // Refresh sales history
-            loadSalesHistory();
-            
-            // Optional: Show sale details
-            viewSaleDetails(response.saleId);
+            if (response && (response.saleId || response.SaleID)) {
+                showNotification('Sale successfully created!', 'success');
+                
+                // Reset the form
+                resetSaleForm();
+                
+                // Refresh sales history
+                loadSalesHistory();
+                
+                // Show sale details if ID available
+                const saleId = response.saleId || response.SaleID;
+                if (saleId) {
+                    setTimeout(() => viewSaleDetails(saleId), 1000);
+                }
+            } else {
+                throw new Error('Invalid response from server');
+            }
         })
         .catch(error => {
             console.error('Error submitting sale:', error);
-            showNotification('Error creating sale. Please try again.', 'danger');
+            showNotification('Failed to create sale. Please check your connection and try again.', 'danger');
         })
         .finally(() => {
             // Re-enable submit button
@@ -560,21 +576,28 @@ function loadSalesHistory() {
     if (queryParams.endsWith('&')) {
         queryParams = queryParams.slice(0, -1);
     }
-    
-    // In a real implementation, this would fetch from the API
+      // Load sales history from real API
     makeApiCall('GET', `/sales${queryParams ? '?' + queryParams : ''}`, null)
         .then(data => {
-            displaySalesHistory(data);
+            if (data && Array.isArray(data)) {
+                displaySalesHistory(data);
+            } else if (data && (data.items || data.sales)) {
+                // Handle different response formats
+                const salesData = data.items || data.sales || [];
+                displaySalesHistory(salesData);
+            } else {
+                throw new Error('Invalid sales data received');
+            }
         })
         .catch(error => {
             console.error('Error loading sales history:', error);
-            showNotification('Error loading sales history', 'danger');
+            showNotification('Failed to load sales history. Please check your connection.', 'danger');
             
             // Show error in table
             $('#sales-table-body').html(`
                 <tr>
                     <td colspan="7" class="text-center text-danger">
-                        Error loading sales data. Please try again.
+                        Failed to load sales data. Please check your connection and try again.
                     </td>
                 </tr>
             `);
@@ -641,15 +664,18 @@ function viewSaleDetails(saleId) {
     
     // Show the modal
     $('#saleDetailsModal').modal('show');
-    
-    // In a real implementation, this would fetch from the API
+      // Load sale details from real API
     makeApiCall('GET', `/sales/${saleId}`, null)
         .then(sale => {
-            populateSaleDetailsModal(sale);
+            if (sale && sale.SaleID) {
+                populateSaleDetailsModal(sale);
+            } else {
+                throw new Error('Invalid sale data received');
+            }
         })
         .catch(error => {
             console.error('Error loading sale details:', error);
-            showNotification('Error loading sale details', 'danger');
+            showNotification('Failed to load sale details. Please check your connection.', 'danger');
             
             // Hide the modal
             $('#saleDetailsModal').modal('hide');
@@ -743,21 +769,24 @@ function updateSaleStatus() {
         <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         Updating...
     `);
-    
-    // In a real implementation, this would call the API
+      // Update sale status via real API
     makeApiCall('PUT', `/sales/${saleId}`, { status: newStatus, notes: notes })
-        .then(() => {
-            showNotification('Sale status updated successfully', 'success');
-            
-            // Refresh the details modal
-            viewSaleDetails(saleId);
-            
-            // Refresh sales history
-            loadSalesHistory();
+        .then(response => {
+            if (response) {
+                showNotification('Sale status updated successfully', 'success');
+                
+                // Refresh the details modal
+                viewSaleDetails(saleId);
+                
+                // Refresh sales history
+                loadSalesHistory();
+            } else {
+                throw new Error('Invalid response from server');
+            }
         })
         .catch(error => {
             console.error('Error updating sale status:', error);
-            showNotification('Error updating sale status', 'danger');
+            showNotification('Failed to update sale status. Please check your connection.', 'danger');
         })
         .finally(() => {
             // Re-enable button
@@ -782,15 +811,18 @@ function saveSaleNotes() {
         <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         Saving...
     `);
-    
-    // In a real implementation, this would call the API
+      // Save sale notes via real API
     makeApiCall('PUT', `/sales/${saleId}/notes`, { notes: notes })
-        .then(() => {
-            showNotification('Notes saved successfully', 'success');
+        .then(response => {
+            if (response) {
+                showNotification('Notes saved successfully', 'success');
+            } else {
+                throw new Error('Invalid response from server');
+            }
         })
         .catch(error => {
             console.error('Error saving notes:', error);
-            showNotification('Error saving notes', 'danger');
+            showNotification('Failed to save notes. Please check your connection.', 'danger');
         })
         .finally(() => {
             // Re-enable button
@@ -819,21 +851,24 @@ function deleteSale() {
         <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         Deleting...
     `);
-    
-    // In a real implementation, this would call the API
+      // Delete sale via real API
     makeApiCall('DELETE', `/sales/${saleId}`, null)
-        .then(() => {
-            showNotification('Sale deleted successfully', 'success');
-            
-            // Hide the modal
-            $('#saleDetailsModal').modal('hide');
-            
-            // Refresh sales history
-            loadSalesHistory();
+        .then(response => {
+            if (response) {
+                showNotification('Sale deleted successfully', 'success');
+                
+                // Hide the modal
+                $('#saleDetailsModal').modal('hide');
+                
+                // Refresh sales history
+                loadSalesHistory();
+            } else {
+                throw new Error('Invalid response from server');
+            }
         })
         .catch(error => {
             console.error('Error deleting sale:', error);
-            showNotification('Error deleting sale', 'danger');
+            showNotification('Failed to delete sale. Please check your connection.', 'danger');
         })
         .finally(() => {
             // Re-enable button
@@ -872,7 +907,7 @@ function showNotification(message, type = 'info') {
 }
 
 /**
- * Make API call - use real API instead of simulation
+ * Make API call - use only real API endpoints
  * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
  * @param {string} endpoint - API endpoint
  * @param {object} data - Request data for POST/PUT
@@ -901,252 +936,14 @@ function makeApiCall(method, endpoint, data) {
     return fetch(url, options)
         .then(response => {
             if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
+                throw new Error(`API error: ${response.status} - ${response.statusText}`);
             }
             return response.json();
         })
         .catch(error => {
             console.error('API Request Error:', error);
-            // Fallback to mock data for demo
-            return getMockData(method, endpoint, data);
+            throw error; // Re-throw error instead of falling back to mock data
         });
 }
 
-/**
- * Get mock data based on endpoint and method for fallback
- */
-function getMockData(method, endpoint, data) {
-    // Simulate API delay
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            if (endpoint.includes('/customers')) {
-                resolve(getMockCustomers());
-            } else if (endpoint.includes('/salesreps')) {
-                resolve(getMockSalesReps());
-            } else if (endpoint.includes('/products')) {
-                resolve(getMockProducts(endpoint));
-            } else if (endpoint.includes('/sales')) {
-                if (method === 'POST') {
-                    // Return success response for new sale
-                    resolve({ 
-                        success: true, 
-                        saleId: 'SALE-' + Date.now(),
-                        message: 'Sale created successfully (mock)'
-                    });
-                } else if (endpoint.includes('/sales/') && !endpoint.endsWith('/sales')) {
-                    // Get specific sale by ID
-                    const saleId = endpoint.split('/sales/')[1].split('?')[0];
-                    resolve(getMockSaleById(saleId));
-                } else {
-                    // Get all sales
-                    resolve(getMockSales(endpoint));
-                }
-            } else {
-                resolve({ error: 'Endpoint not found (mock)' });
-            }
-        }, 500);
-    });
-}
-
-// Mock data functions - in production, these would be removed
-// and replaced with actual API calls
-
-/**
- * Get mock customers data
- */
-function getMockCustomers() {
-    return [
-        { id: 'CUST-1001', name: 'Acme Corporation', email: 'orders@acme.com', phone: '555-123-4567' },
-        { id: 'CUST-1002', name: 'TechNova Solutions', email: 'info@technova.com', phone: '555-987-6543' },
-        { id: 'CUST-1003', name: 'Global Industries', email: 'purchasing@globalind.com', phone: '555-456-7890' },
-        { id: 'CUST-1004', name: 'Infinite Systems', email: 'sales@infinitesys.com', phone: '555-789-0123' },
-        { id: 'CUST-1005', name: 'Peak Performance Inc', email: 'orders@peakperf.com', phone: '555-234-5678' }
-    ];
-}
-
-/**
- * Get mock sales reps data
- */
-function getMockSalesReps() {
-    return [
-        { id: 'SR-101', name: 'John Smith', email: 'john.smith@salepoint.com', phone: '555-111-2222' },
-        { id: 'SR-102', name: 'Sarah Johnson', email: 'sarah.johnson@salepoint.com', phone: '555-222-3333' },
-        { id: 'SR-103', name: 'Michael Brown', email: 'michael.brown@salepoint.com', phone: '555-333-4444' },
-        { id: 'SR-104', name: 'Emily Davis', email: 'emily.davis@salepoint.com', phone: '555-444-5555' }
-    ];
-}
-
-/**
- * Get mock products based on search query
- */
-function getMockProducts(endpoint) {
-    const allProducts = [
-        { id: 'PROD-2001', name: 'Enterprise Server', price: 4999.99, stock: 12 },
-        { id: 'PROD-2002', name: 'Business Laptop Pro', price: 1499.99, stock: 32 },
-        { id: 'PROD-2003', name: 'Network Security Suite', price: 2499.99, stock: 8 },
-        { id: 'PROD-2004', name: '4K Monitor', price: 599.99, stock: 45 },
-        { id: 'PROD-2005', name: 'Cloud Storage Plan (1TB)', price: 99.99, stock: 100 },
-        { id: 'PROD-2006', name: 'Wireless Keyboard and Mouse', price: 79.99, stock: 67 },
-        { id: 'PROD-2007', name: 'Office Software Suite', price: 299.99, stock: 53 },
-        { id: 'PROD-2008', name: 'Virtual Meeting License', price: 149.99, stock: 200 },
-        { id: 'PROD-2009', name: 'Data Backup Solution', price: 399.99, stock: 28 },
-        { id: 'PROD-2010', name: 'UPS Battery Backup', price: 249.99, stock: 15 },
-        { id: 'PROD-2011', name: 'Smartphone Business Edition', price: 899.99, stock: 42 },
-        { id: 'PROD-2012', name: 'Enterprise Router', price: 349.99, stock: 0 }
-    ];
-    
-    // If there's a search parameter, filter the products
-    if (endpoint.includes('?search=')) {
-        const searchTerm = decodeURIComponent(endpoint.split('?search=')[1].toLowerCase());
-        return allProducts.filter(product => 
-            product.id.toLowerCase().includes(searchTerm) || 
-            product.name.toLowerCase().includes(searchTerm)
-        );
-    }
-    
-    return allProducts;
-}
-
-/**
- * Get mock sales data
- */
-function getMockSales(endpoint) {
-    const allSales = [
-        {
-            SaleID: 'SALE-1001',
-            Timestamp: '2025-02-01T10:30:00Z',
-            CustomerID: 'CUST-1001',
-            CustomerName: 'Acme Corporation',
-            SalesRepID: 'SR-101',
-            SalesRepName: 'John Smith',
-            Products: [
-                { productId: 'PROD-2001', name: 'Enterprise Server', price: 4999.99, quantity: 1 },
-                { productId: 'PROD-2003', name: 'Network Security Suite', price: 2499.99, quantity: 1 }
-            ],
-            TotalAmount: 7499.98,
-            Status: 'Completed',
-            Notes: 'Priority shipping requested'
-        },
-        {
-            SaleID: 'SALE-1002',
-            Timestamp: '2025-02-05T14:15:00Z',
-            CustomerID: 'CUST-1002',
-            CustomerName: 'TechNova Solutions',
-            SalesRepID: 'SR-102',
-            SalesRepName: 'Sarah Johnson',
-            Products: [
-                { productId: 'PROD-2002', name: 'Business Laptop Pro', price: 1499.99, quantity: 5 },
-                { productId: 'PROD-2007', name: 'Office Software Suite', price: 299.99, quantity: 5 }
-            ],
-            TotalAmount: 8999.90,
-            Status: 'Pending',
-            Notes: 'Waiting for final approval'
-        },
-        {
-            SaleID: 'SALE-1003',
-            Timestamp: '2025-02-10T09:45:00Z',
-            CustomerID: 'CUST-1004',
-            CustomerName: 'Infinite Systems',
-            SalesRepID: 'SR-103',
-            SalesRepName: 'Michael Brown',
-            Products: [
-                { productId: 'PROD-2005', name: 'Cloud Storage Plan (1TB)', price: 99.99, quantity: 10 },
-                { productId: 'PROD-2008', name: 'Virtual Meeting License', price: 149.99, quantity: 10 }
-            ],
-            TotalAmount: 2499.80,
-            Status: 'Cancelled',
-            Notes: 'Customer decided to go with different solution'
-        },
-        {
-            SaleID: 'SALE-1004',
-            Timestamp: '2025-02-12T16:20:00Z',
-            CustomerID: 'CUST-1003',
-            CustomerName: 'Global Industries',
-            SalesRepID: 'SR-104',
-            SalesRepName: 'Emily Davis',
-            Products: [
-                { productId: 'PROD-2004', name: '4K Monitor', price: 599.99, quantity: 8 },
-                { productId: 'PROD-2006', name: 'Wireless Keyboard and Mouse', price: 79.99, quantity: 8 }
-            ],
-            TotalAmount: 5439.84,
-            Status: 'Completed',
-            Notes: ''
-        },
-        {
-            SaleID: 'SALE-1005',
-            Timestamp: '2025-02-15T11:30:00Z',
-            CustomerID: 'CUST-1005',
-            CustomerName: 'Peak Performance Inc',
-            SalesRepID: 'SR-101',
-            SalesRepName: 'John Smith',
-            Products: [
-                { productId: 'PROD-2009', name: 'Data Backup Solution', price: 399.99, quantity: 1 },
-                { productId: 'PROD-2010', name: 'UPS Battery Backup', price: 249.99, quantity: 2 }
-            ],
-            TotalAmount: 899.97,
-            Status: 'Pending',
-            Notes: 'Installation requested'
-        }
-    ];
-    
-    // Handle filtering
-    if (endpoint.includes('?')) {
-        const params = new URLSearchParams(endpoint.split('?')[1]);
-        
-        let filteredSales = [...allSales];
-        
-        // Filter by status
-        if (params.has('status')) {
-            const status = params.get('status');
-            filteredSales = filteredSales.filter(sale => sale.Status === status);
-        }
-        
-        // Filter by date range
-        if (params.has('dateRange')) {
-            const dateRange = params.get('dateRange');
-            const now = new Date();
-            
-            if (dateRange === 'today') {
-                // Filter for today
-                const today = new Date().toISOString().split('T')[0];
-                filteredSales = filteredSales.filter(sale => 
-                    sale.Timestamp.startsWith(today)
-                );
-            } else if (dateRange === 'week') {
-                // Filter for this week
-                const weekStart = new Date(now.setDate(now.getDate() - now.getDay())).toISOString();
-                filteredSales = filteredSales.filter(sale => 
-                    sale.Timestamp >= weekStart
-                );
-            } else if (dateRange === 'month') {
-                // Filter for this month
-                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-                filteredSales = filteredSales.filter(sale => 
-                    sale.Timestamp >= monthStart
-                );
-            }
-        }
-        
-        // Filter by search term
-        if (params.has('search')) {
-            const searchTerm = params.get('search').toLowerCase();
-            filteredSales = filteredSales.filter(sale => 
-                sale.SaleID.toLowerCase().includes(searchTerm) || 
-                sale.CustomerName.toLowerCase().includes(searchTerm) ||
-                sale.SalesRepName.toLowerCase().includes(searchTerm)
-            );
-        }
-        
-        return filteredSales;
-    }
-    
-    return allSales;
-}
-
-/**
- * Get a specific mock sale by ID
- */
-function getMockSaleById(saleId) {
-    const allSales = getMockSales('');
-    return allSales.find(sale => sale.SaleID === saleId) || null;
-}
+// End of sales.js - All functions use real API endpoints only
