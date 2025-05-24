@@ -48,16 +48,50 @@ check_prerequisites() {
         exit 1
     fi
     
-    # Check AWS credentials
+    # Check if AWS credentials are configured
+    print_status "Checking AWS credentials configuration..."
+    
+    # Check for AWS credentials in environment variables
+    if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+        print_warning "AWS credentials not found in environment variables."
+        print_status "Checking AWS credentials file..."
+        
+        if [ ! -f "$HOME/.aws/credentials" ] && [ ! -f "$USERPROFILE/.aws/credentials" ]; then
+            print_error "AWS credentials not configured. Please set up AWS credentials first."
+            print_status "For AWS Learner Lab, you need to set these environment variables:"
+            print_status "  export AWS_ACCESS_KEY_ID=your_access_key"
+            print_status "  export AWS_SECRET_ACCESS_KEY=your_secret_key"
+            print_status "  export AWS_SESSION_TOKEN=your_session_token"
+            print_status "  export AWS_DEFAULT_REGION=us-east-1"
+            exit 1
+        fi
+    fi
+    
+    # Test AWS credentials by making a simple API call
+    print_status "Testing AWS credentials..."
     if ! aws sts get-caller-identity &> /dev/null; then
-        print_error "AWS credentials are not configured. Please configure AWS CLI first."
+        print_error "AWS credentials are invalid or expired."
+        print_status "For AWS Learner Lab, make sure you have set:"
+        print_status "1. AWS_ACCESS_KEY_ID"
+        print_status "2. AWS_SECRET_ACCESS_KEY" 
+        print_status "3. AWS_SESSION_TOKEN (required for Learner Lab)"
+        print_status "4. AWS_DEFAULT_REGION"
         exit 1
     fi
     
-    # Check if we're in AWS Learner Lab (optional warning)
+    # Get and display account information
     ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-    if [[ $ACCOUNT_ID == 123456789012 ]]; then
-        print_warning "This appears to be an example account ID. Make sure you're using AWS Learner Lab."
+    USER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+    
+    print_success "AWS credentials verified successfully"
+    print_status "Account ID: $ACCOUNT_ID"
+    print_status "User ARN: $USER_ARN"
+    
+    # Check if we're in AWS Learner Lab
+    if [[ $USER_ARN == *"voclabs"* ]] || [[ $USER_ARN == *"learner"* ]]; then
+        print_success "AWS Learner Lab environment detected"
+    else
+        print_warning "This doesn't appear to be AWS Learner Lab. Make sure you're using the correct environment."
     fi
     
     # Check required files
