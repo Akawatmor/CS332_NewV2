@@ -7,10 +7,10 @@ const dns = require('dns');
 
 // Your RDS Configuration
 const RDS_CONFIG = {
-    host: process.env.RDS_ENDPOINT || 'salepoint-rds.cdtkcf7qlbd7.us-east-1.rds.amazonaws.com',
-    user: process.env.RDS_USERNAME || 'admin',
-    password: process.env.RDS_PASSWORD || 'Admin1234',
-    database: process.env.RDS_DATABASE || 'salepointdb',
+    host: process.env.RDS_ENDPOINT || '', // rds endpoint
+    user: process.env.RDS_USERNAME || '', // username of database
+    password: process.env.RDS_PASSWORD || '', // password for database
+    database: process.env.RDS_DATABASE || '', // name of database
     port: process.env.RDS_PORT || 3306,
     connectTimeout: 10000,
     acquireTimeout: 10000,
