@@ -1,956 +1,570 @@
-// Lambda function for sales tracking
-// This would be deployed to AWS Lambda and connected to API Gateway
-// Enhanced for student AWS accounts with limited permissions
-
+const mysql = require('mysql2/promise');
 const AWS = require('aws-sdk');
-const dynamoDB = new AWS.DynamoDB.DocumentClient();
-const mysql = require('mysql');
 
-// Student Account Configuration
-const STUDENT_MODE = process.env.STUDENT_MODE === 'true' || process.env.AWS_EXECUTION_ENV === 'AWS_Lambda_nodejs14.x';
+const dynamodb = new AWS.DynamoDB.DocumentClient();
 
-// Mock data for student accounts or when DynamoDB is unavailable
-const MOCK_SALES = [
-    {
-        SaleID: 'SALE-1703158800000',
-        Timestamp: '2024-01-15T10:00:00Z',
-        CustomerID: 'CUST001',
-        CustomerName: 'Acme Corporation',
-        SalesRepID: 'SR001',
-        SalesRepName: 'John Smith',
-        Products: [
-            { productId: 'PROD001', name: 'Wireless Mouse', quantity: 2, price: 29.99 },
-            { productId: 'PROD002', name: 'Bluetooth Keyboard', quantity: 1, price: 79.99 }
-        ],
-        TotalAmount: 139.97,
-        Status: 'Completed',
-        Notes: 'Express shipping requested',
-        LastUpdated: '2024-01-15T10:00:00Z'
-    },
-    {
-        SaleID: 'SALE-1703245200000',
-        Timestamp: '2024-01-16T14:00:00Z',
-        CustomerID: 'CUST002',
-        CustomerName: 'TechFlow Industries',
-        SalesRepID: 'SR001',
-        SalesRepName: 'John Smith',
-        Products: [
-            { productId: 'PROD003', name: 'Office Chair', quantity: 5, price: 199.99 }
-        ],
-        TotalAmount: 999.95,
-        Status: 'Pending',
-        Notes: 'Bulk order discount applied',
-        LastUpdated: '2024-01-16T14:00:00Z'
-    },
-    {
-        SaleID: 'SALE-1703331600000',
-        Timestamp: '2024-01-17T09:00:00Z',
-        CustomerID: 'CUST003',
-        CustomerName: 'Global Solutions Inc',
-        SalesRepID: 'SR002',
-        SalesRepName: 'Sarah Johnson',
-        Products: [
-            { productId: 'PROD004', name: 'Standing Desk', quantity: 2, price: 299.99 }
-        ],
-        TotalAmount: 599.98,
-        Status: 'Completed',
-        Notes: 'Installation included',
-        LastUpdated: '2024-01-17T09:00:00Z'
-    }
-];
-
-// Check if DynamoDB table exists and is accessible
-async function checkDynamoDBAccess(tableName) {
-    try {
-        await dynamoDB.describeTable({ TableName: tableName }).promise();
-        return true;
-    } catch (error) {
-        console.warn(`DynamoDB table ${tableName} not accessible:`, error.message);
-        return false;
-    }
-}
-
-// Handle AWS permission errors gracefully
-function handleAWSPermissionError(error) {
-    if (error.code === 'AccessDenied' || error.code === 'UnauthorizedOperation' || 
-        error.code === 'ResourceNotFoundException' || error.code === 'ValidationException') {
-        console.warn('AWS Permission/Access issue:', error.message);
-        return formatResponse(503, {
-            message: 'Service temporarily unavailable',
-            fallback: true,
-            error: 'Limited access in student account',
-            suggestion: 'Using mock data instead'
-        });
-    }
-    throw error;
-}
-
-// Enhanced DynamoDB operation with fallback
-async function safeDynamoDBOperation(operation, params, fallbackData = null) {
-    try {
-        const result = await operation(params).promise();
-        return { success: true, data: result };
-    } catch (error) {
-        console.warn('DynamoDB operation failed:', error.message);
-        
-        // Return fallback data for common access issues
-        if (error.code === 'ResourceNotFoundException' || 
-            error.code === 'AccessDenied' || 
-            error.code === 'ValidationException') {
-            return { 
-                success: false, 
-                fallback: true, 
-                data: fallbackData,
-                error: error.message 
-            };
-        }
-        throw error;
-    }
-}
-
-// Create safe RDS connection with student account support
-function createRDSConnection() {
-    if (STUDENT_MODE) {
-        console.log('Student mode: Skipping RDS connection');
-        return null;
-    }
+exports.handler = async (event) => {
+    console.log('Event:', JSON.stringify(event, null, 2));
     
-    // Validate required environment variables
-    const requiredEnvVars = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    const headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+    };
     
-    if (missingVars.length > 0) {
-        console.warn('Missing environment variables for RDS:', missingVars);
-        return null;
+    // Handle CORS preflight
+    if (event.httpMethod === 'OPTIONS') {
+        return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ message: 'CORS preflight successful' })
+        };
     }
     
     try {
-        return mysql.createConnection({
+        // Database connection
+        const connection = await mysql.createConnection({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
             database: process.env.DB_NAME,
-            timeout: 5000
+            port: 3306,
+            connectTimeout: 10000,
+            acquireTimeout: 10000
         });
-    } catch (error) {
-        console.warn('Failed to create RDS connection:', error.message);
-        return null;
-    }
-}
-
-exports.handler = async (event) => {
-    console.log('Event received:', JSON.stringify(event));
-    
-    try {
-        // Handle preflight CORS requests
-        if (event.httpMethod === 'OPTIONS') {
-            return formatResponse(200, { message: 'CORS preflight' });
-        }
         
-        // Safely extract event properties
-        const operation = event.httpMethod;
-        const path = event.path || event.resource || '';
+        const method = event.httpMethod;
         const pathParameters = event.pathParameters || {};
         const queryStringParameters = event.queryStringParameters || {};
+        const body = event.body ? JSON.parse(event.body) : {};
         
-        console.log('Operation:', operation);
-        console.log('Path:', path);
-        console.log('Path Parameters:', pathParameters);
-        console.log('Query Parameters:', queryStringParameters);
+        let result;
         
-        // GET sales tracking data
-        if (operation === 'GET') {
-            // If getting by sales ID - /sales/{saleId}
-            if (pathParameters.saleId) {
-                const saleId = pathParameters.saleId;
-                return await getSaleById(saleId);
-            }
-            
-            // If getting by sales rep ID - /sales?salesRepId=xxx
-            else if (queryStringParameters.salesRepId) {
-                const salesRepId = queryStringParameters.salesRepId;
-                return await getSalesBySalesRep(salesRepId);
-            }
-            
-            // If getting by customer ID - /sales?customerId=xxx
-            else if (queryStringParameters.customerId) {
-                const customerId = queryStringParameters.customerId;
-                return await getSalesByCustomer(customerId);
-            }
-            
-            // If no filters, get all sales (with optional pagination) - /sales
-            else {
-                const limit = parseInt(queryStringParameters.limit) || 50;
-                const startKey = queryStringParameters.startKey;
-                return await getAllSales(limit, startKey);
-            }
+        switch (method) {
+            case 'GET':
+                if (pathParameters.saleId) {
+                    // Get specific sale with items
+                    const [saleRows] = await connection.execute(`
+                        SELECT s.*, c.name as customer_name, c.company, c.city, c.state,
+                               sr.name as sales_rep_name, sr.email as sales_rep_email
+                        FROM sales s
+                        JOIN customers c ON s.customer_id = c.customer_id
+                        JOIN sales_representatives sr ON s.sales_rep_id = sr.sales_rep_id
+                        WHERE s.sale_id = ?
+                    `, [pathParameters.saleId]);
+                    
+                    if (saleRows.length === 0) {
+                        await connection.end();
+                        return {
+                            statusCode: 404,
+                            headers,
+                            body: JSON.stringify({ message: 'Sale not found' })
+                        };
+                    }
+                    
+                    const sale = saleRows[0];
+                    
+                    // Get sale items
+                    const [itemRows] = await connection.execute(`
+                        SELECT si.*, p.name as product_name, p.description
+                        FROM sale_items si
+                        JOIN products p ON si.product_id = p.product_id
+                        WHERE si.sale_id = ?
+                        ORDER BY si.id
+                    `, [pathParameters.saleId]);
+                    
+                    sale.items = itemRows;
+                    
+                    // Get tracking data from DynamoDB
+                    try {
+                        const dynamoParams = {
+                            TableName: 'SalesTracking',
+                            Key: {
+                                SaleID: pathParameters.saleId,
+                                Timestamp: sale.created_at.toISOString()
+                            }
+                        };
+                        
+                        const dynamoResult = await dynamodb.get(dynamoParams).promise();
+                        if (dynamoResult.Item) {
+                            sale.tracking_data = dynamoResult.Item;
+                        }
+                    } catch (dynamoError) {
+                        console.warn('DynamoDB error (non-critical):', dynamoError);
+                        sale.tracking_data = null;
+                    }
+                    
+                    result = sale;
+                } else {
+                    // Get all sales with optional filtering
+                    let query = `
+                        SELECT s.sale_id, s.sale_date, s.status, s.total_amount, s.tax_amount,
+                               c.name as customer_name, c.company,
+                               sr.name as sales_rep_name,
+                               (s.total_amount + s.tax_amount) as grand_total
+                        FROM sales s
+                        JOIN customers c ON s.customer_id = c.customer_id
+                        JOIN sales_representatives sr ON s.sales_rep_id = sr.sales_rep_id
+                    `;
+                    let params = [];
+                    let conditions = [];
+                    
+                    if (queryStringParameters.status) {
+                        conditions.push('s.status = ?');
+                        params.push(queryStringParameters.status);
+                    }
+                    
+                    if (queryStringParameters.customer_id) {
+                        conditions.push('s.customer_id = ?');
+                        params.push(queryStringParameters.customer_id);
+                    }
+                    
+                    if (queryStringParameters.sales_rep_id) {
+                        conditions.push('s.sales_rep_id = ?');
+                        params.push(queryStringParameters.sales_rep_id);
+                    }
+                    
+                    if (queryStringParameters.start_date) {
+                        conditions.push('s.sale_date >= ?');
+                        params.push(queryStringParameters.start_date);
+                    }
+                    
+                    if (queryStringParameters.end_date) {
+                        conditions.push('s.sale_date <= ?');
+                        params.push(queryStringParameters.end_date);
+                    }
+                    
+                    if (queryStringParameters.search) {
+                        conditions.push('(c.name LIKE ? OR c.company LIKE ? OR s.sale_id LIKE ?)');
+                        const searchTerm = `%${queryStringParameters.search}%`;
+                        params.push(searchTerm, searchTerm, searchTerm);
+                    }
+                    
+                    if (conditions.length > 0) {
+                        query += ' WHERE ' + conditions.join(' AND ');
+                    }
+                    
+                    query += ' ORDER BY s.sale_date DESC';
+                    
+                    // Add pagination
+                    const limit = parseInt(queryStringParameters.limit) || 50;
+                    const offset = parseInt(queryStringParameters.offset) || 0;
+                    query += ' LIMIT ? OFFSET ?';
+                    params.push(limit, offset);
+                    
+                    const [rows] = await connection.execute(query, params);
+                    
+                    // Get total count
+                    let countQuery = 'SELECT COUNT(*) as total FROM sales s JOIN customers c ON s.customer_id = c.customer_id';
+                    let countParams = [];
+                    if (conditions.length > 0) {
+                        countQuery += ' WHERE ' + conditions.join(' AND ');
+                        countParams = params.slice(0, -2);
+                    }
+                    
+                    const [countRows] = await connection.execute(countQuery, countParams);
+                    const total = countRows[0].total;
+                    
+                    result = { 
+                        sales: rows, 
+                        count: rows.length,
+                        total: total,
+                        hasMore: offset + limit < total
+                    };
+                }
+                break;
+                
+            case 'POST':
+                // Create new sale
+                const { sale_id, customer_id, sales_rep_id, items, notes, discount_amount } = body;
+                
+                if (!sale_id || !customer_id || !sales_rep_id || !items || !Array.isArray(items) || items.length === 0) {
+                    await connection.end();
+                    return {
+                        statusCode: 400,
+                        headers,
+                        body: JSON.stringify({ 
+                            message: 'Missing required fields: sale_id, customer_id, sales_rep_id, items (array)' 
+                        })
+                    };
+                }
+                
+                // Verify customer exists
+                const [customerCheck] = await connection.execute(
+                    'SELECT customer_id FROM customers WHERE customer_id = ?',
+                    [customer_id]
+                );
+                
+                if (customerCheck.length === 0) {
+                    await connection.end();
+                    return {
+                        statusCode: 404,
+                        headers,
+                        body: JSON.stringify({ message: 'Customer not found' })
+                    };
+                }
+                
+                // Verify sales rep exists
+                const [salesRepCheck] = await connection.execute(
+                    'SELECT sales_rep_id FROM sales_representatives WHERE sales_rep_id = ? AND active = TRUE',
+                    [sales_rep_id]
+                );
+                
+                if (salesRepCheck.length === 0) {
+                    await connection.end();
+                    return {
+                        statusCode: 404,
+                        headers,
+                        body: JSON.stringify({ message: 'Sales representative not found or inactive' })
+                    };
+                }
+                
+                // Check if sale ID already exists
+                const [existingSales] = await connection.execute(
+                    'SELECT sale_id FROM sales WHERE sale_id = ?',
+                    [sale_id]
+                );
+                
+                if (existingSales.length > 0) {
+                    await connection.end();
+                    return {
+                        statusCode: 409,
+                        headers,
+                        body: JSON.stringify({ message: 'Sale with this ID already exists' })
+                    };
+                }
+                
+                // Start transaction
+                await connection.beginTransaction();
+                
+                try {
+                    let total_amount = 0;
+                    const processedItems = [];
+                    
+                    // Validate items and calculate total
+                    for (const item of items) {
+                        const { product_id, quantity } = item;
+                        
+                        if (!product_id || !quantity || quantity <= 0) {
+                            throw new Error(`Invalid item: product_id and positive quantity required`);
+                        }
+                        
+                        // Get product details and check stock
+                        const [productRows] = await connection.execute(
+                            'SELECT product_id, price, stock_quantity FROM products WHERE product_id = ?',
+                            [product_id]
+                        );
+                        
+                        if (productRows.length === 0) {
+                            throw new Error(`Product not found: ${product_id}`);
+                        }
+                        
+                        const product = productRows[0];
+                        
+                        if (product.stock_quantity < quantity) {
+                            throw new Error(`Insufficient stock for product ${product_id}. Available: ${product.stock_quantity}, Requested: ${quantity}`);
+                        }
+                        
+                        const unit_price = product.price;
+                        const total_price = unit_price * quantity;
+                        total_amount += total_price;
+                        
+                        processedItems.push({
+                            product_id,
+                            quantity,
+                            unit_price,
+                            total_price
+                        });
+                    }
+                    
+                    // Apply discount
+                    const final_discount = discount_amount || 0;
+                    total_amount -= final_discount;
+                    
+                    // Calculate tax (8% for example)
+                    const tax_amount = total_amount * 0.08;
+                    
+                    // Create sale record
+                    await connection.execute(`
+                        INSERT INTO sales 
+                        (sale_id, customer_id, sales_rep_id, total_amount, discount_amount, tax_amount, notes, status) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                    `, [sale_id, customer_id, sales_rep_id, total_amount, final_discount, tax_amount, notes || '']);
+                    
+                    // Create sale items
+                    for (const item of processedItems) {
+                        await connection.execute(`
+                            INSERT INTO sale_items 
+                            (sale_id, product_id, quantity, unit_price, total_price) 
+                            VALUES (?, ?, ?, ?, ?)
+                        `, [sale_id, item.product_id, item.quantity, item.unit_price, item.total_price]);
+                        
+                        // Update inventory (triggers will handle this, but we can do it explicitly)
+                        await connection.execute(
+                            'UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ?',
+                            [item.quantity, item.product_id]
+                        );
+                    }
+                    
+                    await connection.commit();
+                    
+                    // Add to DynamoDB tracking
+                    try {
+                        const dynamoParams = {
+                            TableName: 'SalesTracking',
+                            Item: {
+                                SaleID: sale_id,
+                                Timestamp: new Date().toISOString(),
+                                CustomerID: customer_id,
+                                SalesRepID: sales_rep_id,
+                                Status: 'pending',
+                                TotalAmount: total_amount + tax_amount,
+                                ItemCount: processedItems.length,
+                                CreatedDate: new Date().toISOString(),
+                                LastUpdated: new Date().toISOString()
+                            }
+                        };
+                        
+                        await dynamodb.put(dynamoParams).promise();
+                    } catch (dynamoError) {
+                        console.warn('DynamoDB tracking failed (non-critical):', dynamoError);
+                    }
+                    
+                    result = { 
+                        message: 'Sale created successfully', 
+                        sale_id,
+                        total_amount: total_amount + tax_amount,
+                        items_count: processedItems.length
+                    };
+                } catch (transactionError) {
+                    await connection.rollback();
+                    throw transactionError;
+                }
+                break;
+                
+            case 'PUT':
+                // Update sale
+                if (!pathParameters.saleId) {
+                    await connection.end();
+                    return {
+                        statusCode: 400,
+                        headers,
+                        body: JSON.stringify({ message: 'Sale ID required' })
+                    };
+                }
+                
+                const { status, update_notes } = body;
+                
+                if (!status) {
+                    await connection.end();
+                    return {
+                        statusCode: 400,
+                        headers,
+                        body: JSON.stringify({ message: 'Status is required' })
+                    };
+                }
+                
+                const validStatuses = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
+                if (!validStatuses.includes(status)) {
+                    await connection.end();
+                    return {
+                        statusCode: 400,
+                        headers,
+                        body: JSON.stringify({ 
+                            message: `Invalid status. Valid values: ${validStatuses.join(', ')}` 
+                        })
+                    };
+                }
+                
+                // Get current sale status
+                const [currentSaleRows] = await connection.execute(
+                    'SELECT status FROM sales WHERE sale_id = ?',
+                    [pathParameters.saleId]
+                );
+                
+                if (currentSaleRows.length === 0) {
+                    await connection.end();
+                    return {
+                        statusCode: 404,
+                        headers,
+                        body: JSON.stringify({ message: 'Sale not found' })
+                    };
+                }
+                
+                const oldStatus = currentSaleRows[0].status;
+                
+                // Start transaction for inventory updates
+                await connection.beginTransaction();
+                
+                try {
+                    // If cancelling a sale, restore inventory
+                    if (oldStatus !== 'cancelled' && status === 'cancelled') {
+                        const [saleItems] = await connection.execute(
+                            'SELECT product_id, quantity FROM sale_items WHERE sale_id = ?',
+                            [pathParameters.saleId]
+                        );
+                        
+                        for (const item of saleItems) {
+                            await connection.execute(
+                                'UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?',
+                                [item.quantity, item.product_id]
+                            );
+                        }
+                    }
+                    
+                    // Update sale status
+                    const updateFields = ['status = ?'];
+                    const updateValues = [status];
+                    
+                    if (update_notes) {
+                        updateFields.push('notes = ?');
+                        updateValues.push(update_notes);
+                    }
+                    
+                    updateValues.push(pathParameters.saleId);
+                    
+                    await connection.execute(
+                        `UPDATE sales SET ${updateFields.join(', ')} WHERE sale_id = ?`,
+                        updateValues
+                    );
+                    
+                    await connection.commit();
+                    
+                    // Update DynamoDB tracking
+                    try {
+                        const dynamoParams = {
+                            TableName: 'SalesTracking',
+                            Key: {
+                                SaleID: pathParameters.saleId,
+                                Timestamp: new Date().toISOString() // This may need to be the original timestamp
+                            },
+                            UpdateExpression: 'SET #status = :status, LastUpdated = :lastUpdated',
+                            ExpressionAttributeNames: {
+                                '#status': 'Status'
+                            },
+                            ExpressionAttributeValues: {
+                                ':status': status,
+                                ':lastUpdated': new Date().toISOString()
+                            }
+                        };
+                        
+                        await dynamodb.update(dynamoParams).promise();
+                    } catch (dynamoError) {
+                        console.warn('DynamoDB update failed (non-critical):', dynamoError);
+                    }
+                    
+                    result = { 
+                        message: 'Sale updated successfully',
+                        old_status: oldStatus,
+                        new_status: status
+                    };
+                } catch (transactionError) {
+                    await connection.rollback();
+                    throw transactionError;
+                }
+                break;
+                
+            case 'DELETE':
+                // Delete sale (admin only - removes completely)
+                if (!pathParameters.saleId) {
+                    await connection.end();
+                    return {
+                        statusCode: 400,
+                        headers,
+                        body: JSON.stringify({ message: 'Sale ID required' })
+                    };
+                }
+                
+                // Start transaction
+                await connection.beginTransaction();
+                
+                try {
+                    // Restore inventory first
+                    const [saleItems] = await connection.execute(
+                        'SELECT product_id, quantity FROM sale_items WHERE sale_id = ?',
+                        [pathParameters.saleId]
+                    );
+                    
+                    for (const item of saleItems) {
+                        await connection.execute(
+                            'UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?',
+                            [item.quantity, item.product_id]
+                        );
+                    }
+                    
+                    // Delete sale items first (due to foreign key constraint)
+                    await connection.execute(
+                        'DELETE FROM sale_items WHERE sale_id = ?',
+                        [pathParameters.saleId]
+                    );
+                    
+                    // Delete sale
+                    const [deleteResult] = await connection.execute(
+                        'DELETE FROM sales WHERE sale_id = ?',
+                        [pathParameters.saleId]
+                    );
+                    
+                    if (deleteResult.affectedRows === 0) {
+                        await connection.rollback();
+                        await connection.end();
+                        return {
+                            statusCode: 404,
+                            headers,
+                            body: JSON.stringify({ message: 'Sale not found' })
+                        };
+                    }
+                    
+                    await connection.commit();
+                    
+                    // Remove from DynamoDB tracking
+                    try {
+                        const dynamoParams = {
+                            TableName: 'SalesTracking',
+                            Key: {
+                                SaleID: pathParameters.saleId,
+                                Timestamp: new Date().toISOString() // This should be the original timestamp
+                            }
+                        };
+                        
+                        await dynamodb.delete(dynamoParams).promise();
+                    } catch (dynamoError) {
+                        console.warn('DynamoDB delete failed (non-critical):', dynamoError);
+                    }
+                    
+                    result = { message: 'Sale deleted successfully' };
+                } catch (transactionError) {
+                    await connection.rollback();
+                    throw transactionError;
+                }
+                break;
+                
+            default:
+                await connection.end();
+                return {
+                    statusCode: 405,
+                    headers,
+                    body: JSON.stringify({ message: 'Method not allowed' })
+                };
         }
         
-        // POST create new sale record - /sales
-        else if (operation === 'POST') {
-            if (!event.body) {
-                return formatResponse(400, { message: 'Request body is required' });
-            }
-            try {
-                const requestBody = JSON.parse(event.body);
-                return await createSale(requestBody);
-            } catch (parseError) {
-                console.error('JSON parsing error:', parseError);
-                return formatResponse(400, { 
-                    message: 'Invalid JSON in request body',
-                    error: parseError.message 
-                });
-            }
-        }
+        await connection.end();
         
-        // PUT update sale status - /sales/{saleId}
-        else if (operation === 'PUT' && pathParameters.saleId) {
-            const saleId = pathParameters.saleId;
-            if (!event.body) {
-                return formatResponse(400, { message: 'Request body is required' });
-            }
-            try {
-                const requestBody = JSON.parse(event.body);
-                return await updateSaleStatus(saleId, requestBody);
-            } catch (parseError) {
-                console.error('JSON parsing error:', parseError);
-                return formatResponse(400, { 
-                    message: 'Invalid JSON in request body',
-                    error: parseError.message 
-                });
-            }
-        }
+        return {
+            statusCode: method === 'POST' ? 201 : 200,
+            headers,
+            body: JSON.stringify(result)
+        };
         
-        else {
-            return formatResponse(400, { 
-                message: 'Invalid operation',
-                received: {
-                    method: operation,
-                    path: path,
-                    pathParameters: pathParameters
-                },
-                supportedOperations: [
-                    'GET /sales',
-                    'GET /sales/{saleId}',
-                    'GET /sales?salesRepId=xxx',
-                    'GET /sales?customerId=xxx',
-                    'POST /sales',
-                    'PUT /sales/{saleId}'
-                ]
-            });
-        }
     } catch (error) {
-        console.error('Handler error:', error);
-        
-        // Try to handle permission errors gracefully
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            return formatResponse(500, { 
-                message: 'Internal server error', 
-                error: error.message,
-                studentMode: STUDENT_MODE
-            });
-        }
+        console.error('Error:', error);
+        return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ 
+                message: 'Internal server error',
+                error: error.message 
+            })
+        };
     }
 };
-
-// Function to get a specific sale by ID with student account support
-async function getSaleById(saleId) {
-    if (!saleId) {
-        return formatResponse(400, { message: 'Sale ID is required' });
-    }
-    
-    try {
-        // Check if DynamoDB is accessible
-        const hasAccess = await checkDynamoDBAccess('SalesTracking');
-        
-        if (!hasAccess || STUDENT_MODE) {
-            console.log('Using mock data for sale lookup');
-            const mockSale = MOCK_SALES.find(sale => sale.SaleID === saleId);
-            
-            if (!mockSale) {
-                return formatResponse(404, { 
-                    message: 'Sale not found',
-                    mockData: true 
-                });
-            }
-            
-            return formatResponse(200, {
-                ...mockSale,
-                mockData: true,
-                message: 'Mock data - student account mode'
-            });
-        }
-        
-        const params = {
-            TableName: 'SalesTracking',
-            Key: {
-                'SaleID': saleId
-            }
-        };
-        
-        const operation = await safeDynamoDBOperation(
-            dynamoDB.get.bind(dynamoDB), 
-            params,
-            MOCK_SALES.find(sale => sale.SaleID === saleId)
-        );
-        
-        if (operation.fallback) {
-            const fallbackSale = operation.data;
-            if (!fallbackSale) {
-                return formatResponse(404, { 
-                    message: 'Sale not found',
-                    fallbackData: true 
-                });
-            }
-            return formatResponse(200, {
-                ...fallbackSale,
-                fallbackData: true,
-                message: 'DynamoDB unavailable, using fallback data'
-            });
-        }
-        
-        if (!operation.data.Item) {
-            return formatResponse(404, { message: 'Sale not found' });
-        }
-        
-        return formatResponse(200, {
-            ...operation.data.Item,
-            source: 'dynamodb'
-        });
-        
-    } catch (error) {
-        console.error('Error getting sale:', error);
-        
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            // Final fallback to mock data
-            const mockSale = MOCK_SALES.find(sale => sale.SaleID === saleId);
-            return formatResponse(200, mockSale || {
-                SaleID: saleId,
-                message: 'Sale not found in fallback data',
-                fallbackData: true,
-                error: error.message
-            });
-        }
-    }
-}
-
-// Function to get all sales by a specific sales rep with student account support
-async function getSalesBySalesRep(salesRepId) {
-    if (!salesRepId) {
-        return formatResponse(400, { message: 'Sales Rep ID is required' });
-    }
-    
-    try {
-        // Check if DynamoDB is accessible
-        const hasAccess = await checkDynamoDBAccess('SalesTracking');
-        
-        if (!hasAccess || STUDENT_MODE) {
-            console.log('Using mock data for sales rep sales');
-            const mockSales = MOCK_SALES.filter(sale => sale.SalesRepID === salesRepId);
-            
-            return formatResponse(200, {
-                sales: mockSales,
-                count: mockSales.length,
-                mockData: true,
-                message: 'Mock data - student account mode'
-            });
-        }
-        
-        const params = {
-            TableName: 'SalesTracking',
-            IndexName: 'SalesRepID-index',  // GSI for querying by salesRepId
-            KeyConditionExpression: 'SalesRepID = :salesRepId',
-            ExpressionAttributeValues: {
-                ':salesRepId': salesRepId
-            }
-        };
-        
-        const operation = await safeDynamoDBOperation(
-            dynamoDB.query.bind(dynamoDB), 
-            params,
-            MOCK_SALES.filter(sale => sale.SalesRepID === salesRepId)
-        );
-        
-        if (operation.fallback) {
-            return formatResponse(200, {
-                sales: operation.data,
-                count: operation.data.length,
-                fallbackData: true,
-                message: 'DynamoDB unavailable, using fallback data'
-            });
-        }
-        
-        return formatResponse(200, {
-            sales: operation.data.Items,
-            count: operation.data.Items.length,
-            source: 'dynamodb'
-        });
-        
-    } catch (error) {
-        console.error('Error getting sales by sales rep:', error);
-        
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            // Final fallback to mock data
-            const mockSales = MOCK_SALES.filter(sale => sale.SalesRepID === salesRepId);
-            return formatResponse(200, {
-                sales: mockSales,
-                count: mockSales.length,
-                fallbackData: true,
-                error: error.message
-            });
-        }
-    }
-}
-
-// Function to get all sales for a specific customer with student account support
-async function getSalesByCustomer(customerId) {
-    if (!customerId) {
-        return formatResponse(400, { message: 'Customer ID is required' });
-    }
-    
-    try {
-        // Check if DynamoDB is accessible
-        const hasAccess = await checkDynamoDBAccess('SalesTracking');
-        
-        if (!hasAccess || STUDENT_MODE) {
-            console.log('Using mock data for customer sales');
-            const mockSales = MOCK_SALES.filter(sale => sale.CustomerID === customerId);
-            
-            return formatResponse(200, {
-                sales: mockSales,
-                count: mockSales.length,
-                mockData: true,
-                message: 'Mock data - student account mode'
-            });
-        }
-        
-        const params = {
-            TableName: 'SalesTracking',
-            IndexName: 'CustomerID-index',  // GSI for querying by customerId
-            KeyConditionExpression: 'CustomerID = :customerId',
-            ExpressionAttributeValues: {
-                ':customerId': customerId
-            }
-        };
-        
-        const operation = await safeDynamoDBOperation(
-            dynamoDB.query.bind(dynamoDB), 
-            params,
-            MOCK_SALES.filter(sale => sale.CustomerID === customerId)
-        );
-        
-        if (operation.fallback) {
-            return formatResponse(200, {
-                sales: operation.data,
-                count: operation.data.length,
-                fallbackData: true,
-                message: 'DynamoDB unavailable, using fallback data'
-            });
-        }
-        
-        return formatResponse(200, {
-            sales: operation.data.Items,
-            count: operation.data.Items.length,
-            source: 'dynamodb'
-        });
-        
-    } catch (error) {
-        console.error('Error getting sales by customer:', error);
-        
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            // Final fallback to mock data
-            const mockSales = MOCK_SALES.filter(sale => sale.CustomerID === customerId);
-            return formatResponse(200, {
-                sales: mockSales,
-                count: mockSales.length,
-                fallbackData: true,
-                error: error.message
-            });
-        }
-    }
-}
-
-// Function to get all sales with optional pagination and student account support
-async function getAllSales(limit, startKey) {
-    try {
-        // Check if DynamoDB is accessible
-        const hasAccess = await checkDynamoDBAccess('SalesTracking');
-        
-        if (!hasAccess || STUDENT_MODE) {
-            console.log('Using mock data for all sales');
-            
-            // Simple pagination simulation for mock data
-            const start = startKey ? parseInt(startKey) : 0;
-            const end = Math.min(start + limit, MOCK_SALES.length);
-            const paginatedSales = MOCK_SALES.slice(start, end);
-            
-            const response = {
-                items: paginatedSales,
-                count: paginatedSales.length,
-                total: MOCK_SALES.length,
-                mockData: true,
-                message: 'Mock data - student account mode'
-            };
-            
-            // Add pagination token if there are more results
-            if (end < MOCK_SALES.length) {
-                response.nextKey = end.toString();
-            }
-            
-            return formatResponse(200, response);
-        }
-        
-        const params = {
-            TableName: 'SalesTracking',
-            Limit: parseInt(limit)
-        };
-        
-        // Add pagination if startKey is provided
-        if (startKey) {
-            try {
-                params.ExclusiveStartKey = JSON.parse(decodeURIComponent(startKey));
-            } catch (parseError) {
-                console.warn('Invalid startKey format, ignoring:', parseError.message);
-            }
-        }
-        
-        const operation = await safeDynamoDBOperation(
-            dynamoDB.scan.bind(dynamoDB), 
-            params,
-            MOCK_SALES.slice(0, limit)
-        );
-        
-        if (operation.fallback) {
-            const response = {
-                items: operation.data,
-                count: operation.data.length,
-                fallbackData: true,
-                message: 'DynamoDB unavailable, using fallback data'
-            };
-            return formatResponse(200, response);
-        }
-        
-        // Prepare response
-        const response = {
-            items: operation.data.Items,
-            count: operation.data.Count,
-            source: 'dynamodb'
-        };
-        
-        // Add pagination token if there are more results
-        if (operation.data.LastEvaluatedKey) {
-            response.nextKey = encodeURIComponent(JSON.stringify(operation.data.LastEvaluatedKey));
-        }
-        
-        return formatResponse(200, response);
-        
-    } catch (error) {
-        console.error('Error getting all sales:', error);
-        
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            // Final fallback to mock data
-            const response = {
-                items: MOCK_SALES.slice(0, limit),
-                count: Math.min(limit, MOCK_SALES.length),
-                total: MOCK_SALES.length,
-                fallbackData: true,
-                error: error.message
-            };
-            return formatResponse(200, response);
-        }
-    }
-}
-
-// Function to create a new sale with student account support
-async function createSale(requestBody) {
-    // Validate required fields
-    if (!requestBody.customerId || !requestBody.salesRepId || !requestBody.products || !requestBody.totalAmount) {
-        return formatResponse(400, { message: 'Required fields missing. Required: customerId, salesRepId, products, totalAmount' });
-    }
-    
-    // Generate a unique sale ID
-    const saleId = 'SALE-' + Date.now();
-    const timestamp = new Date().toISOString();
-    
-    const saleItem = {
-        'SaleID': saleId,
-        'Timestamp': timestamp,
-        'CustomerID': requestBody.customerId,
-        'CustomerName': requestBody.customerName || 'Unknown Customer',
-        'SalesRepID': requestBody.salesRepId,
-        'SalesRepName': requestBody.salesRepName || 'Unknown Sales Rep',
-        'Products': requestBody.products,
-        'TotalAmount': requestBody.totalAmount,
-        'Status': 'Pending',
-        'Notes': requestBody.notes || '',
-        'LastUpdated': timestamp
-    };
-    
-    try {
-        // Check if DynamoDB is accessible
-        const hasAccess = await checkDynamoDBAccess('SalesTracking');
-        
-        if (!hasAccess || STUDENT_MODE) {
-            console.log('Using mock data for sale creation');
-            return formatResponse(201, { 
-                message: 'Sale record created successfully (mock data)',
-                saleId: saleId,
-                saleDetails: saleItem,
-                mockData: true,
-                note: 'Sale simulated - student account mode. Inventory update skipped.'
-            });
-        }
-        
-        const params = {
-            TableName: 'SalesTracking',
-            Item: saleItem
-        };
-        
-        const operation = await safeDynamoDBOperation(
-            dynamoDB.put.bind(dynamoDB), 
-            params,
-            saleItem
-        );
-        
-        if (operation.fallback) {
-            return formatResponse(201, { 
-                message: 'Sale record created successfully (simulated)',
-                saleId: saleId,
-                saleDetails: saleItem,
-                fallbackData: true,
-                note: 'DynamoDB unavailable, sale simulated. Inventory update skipped.'
-            });
-        }
-        
-        // Try to update inventory in RDS for each product
-        try {
-            await updateInventory(requestBody.products);
-        } catch (inventoryError) {
-            console.warn('Inventory update failed:', inventoryError.message);
-            // Don't fail the sale creation if inventory update fails in student mode
-            return formatResponse(201, { 
-                message: 'Sale record created successfully',
-                saleId: saleId,
-                saleDetails: saleItem,
-                warning: 'Inventory update failed - may be due to student account limitations',
-                source: 'dynamodb'
-            });
-        }
-        
-        return formatResponse(201, { 
-            message: 'Sale record created successfully',
-            saleId: saleId,
-            saleDetails: saleItem,
-            source: 'dynamodb'
-        });
-        
-    } catch (error) {
-        console.error('Error creating sale:', error);
-        
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            // Final fallback - simulate the sale creation
-            return formatResponse(201, { 
-                message: 'Sale record created successfully (simulated)',
-                saleId: saleId,
-                saleDetails: saleItem,
-                fallbackData: true,
-                error: error.message
-            });
-        }
-    }
-}
-
-// Function to update sale status with student account support
-async function updateSaleStatus(saleId, requestBody) {
-    // Validate required fields
-    if (!saleId || !requestBody.status) {
-        return formatResponse(400, { message: 'Sale ID and Status are required' });
-    }
-    
-    try {
-        // Check if DynamoDB is accessible
-        const hasAccess = await checkDynamoDBAccess('SalesTracking');
-        
-        if (!hasAccess || STUDENT_MODE) {
-            console.log('Using mock data for sale status update');
-            const mockSale = MOCK_SALES.find(sale => sale.SaleID === saleId);
-            
-            if (!mockSale) {
-                return formatResponse(404, { 
-                    message: 'Sale not found',
-                    mockData: true 
-                });
-            }
-            
-            const updateData = {
-                Status: requestBody.status,
-                LastUpdated: new Date().toISOString(),
-                Notes: requestBody.notes || mockSale.Notes || ''
-            };
-            
-            return formatResponse(200, {
-                message: 'Sale status updated successfully (mock data)',
-                updates: updateData,
-                mockData: true,
-                note: 'Update simulated - student account mode. Inventory restore skipped.'
-            });
-        }
-        
-        // First, get the current sale record
-        const getSaleParams = {
-            TableName: 'SalesTracking',
-            Key: {
-                'SaleID': saleId
-            }
-        };
-        
-        const currentSaleOperation = await safeDynamoDBOperation(
-            dynamoDB.get.bind(dynamoDB), 
-            getSaleParams,
-            MOCK_SALES.find(sale => sale.SaleID === saleId)
-        );
-        
-        if (currentSaleOperation.fallback) {
-            const mockSale = currentSaleOperation.data;
-            if (!mockSale) {
-                return formatResponse(404, { 
-                    message: 'Sale not found',
-                    fallbackData: true 
-                });
-            }
-            
-            const updateData = {
-                Status: requestBody.status,
-                LastUpdated: new Date().toISOString(),
-                Notes: requestBody.notes || mockSale.Notes || ''
-            };
-            
-            return formatResponse(200, {
-                message: 'Sale status updated successfully (simulated)',
-                updates: updateData,
-                fallbackData: true,
-                note: 'DynamoDB unavailable, update simulated. Inventory restore skipped.'
-            });
-        }
-        
-        if (!currentSaleOperation.data.Item) {
-            return formatResponse(404, { message: 'Sale not found' });
-        }
-        
-        const currentSale = currentSaleOperation.data.Item;
-        
-        // Update the sale record
-        const updateParams = {
-            TableName: 'SalesTracking',
-            Key: {
-                'SaleID': saleId
-            },
-            UpdateExpression: 'set #status = :status, LastUpdated = :lastUpdated, Notes = :notes',
-            ExpressionAttributeNames: {
-                '#status': 'Status'
-            },
-            ExpressionAttributeValues: {
-                ':status': requestBody.status,
-                ':lastUpdated': new Date().toISOString(),
-                ':notes': requestBody.notes || currentSale.Notes || ''
-            },
-            ReturnValues: 'UPDATED_NEW'
-        };
-        
-        const updateOperation = await safeDynamoDBOperation(
-            dynamoDB.update.bind(dynamoDB), 
-            updateParams,
-            {
-                Status: requestBody.status,
-                LastUpdated: new Date().toISOString(),
-                Notes: requestBody.notes || currentSale.Notes || ''
-            }
-        );
-        
-        if (updateOperation.fallback) {
-            return formatResponse(200, {
-                message: 'Sale status updated successfully (simulated)',
-                updates: updateOperation.data,
-                fallbackData: true,
-                note: 'DynamoDB unavailable, update simulated. Inventory restore skipped.'
-            });
-        }
-        
-        // Special handling for "Cancelled" status - restore inventory
-        if (requestBody.status === 'Cancelled' && currentSale.Status !== 'Cancelled') {
-            try {
-                await restoreInventory(currentSale.Products);
-            } catch (inventoryError) {
-                console.warn('Inventory restore failed:', inventoryError.message);
-                // Don't fail the status update if inventory restore fails in student mode
-                return formatResponse(200, {
-                    message: 'Sale status updated successfully',
-                    updates: updateOperation.data.Attributes,
-                    warning: 'Inventory restore failed - may be due to student account limitations',
-                    source: 'dynamodb'
-                });
-            }
-        }
-        
-        return formatResponse(200, {
-            message: 'Sale status updated successfully',
-            updates: updateOperation.data.Attributes,
-            source: 'dynamodb'
-        });
-        
-    } catch (error) {
-        console.error('Error updating sale status:', error);
-        
-        try {
-            return handleAWSPermissionError(error);
-        } catch (handlerError) {
-            // Final fallback - simulate the update
-            const updateData = {
-                Status: requestBody.status,
-                LastUpdated: new Date().toISOString(),
-                Notes: requestBody.notes || ''
-            };
-            
-            return formatResponse(200, {
-                message: 'Sale status updated successfully (simulated)',
-                updates: updateData,
-                fallbackData: true,
-                error: error.message
-            });
-        }
-    }
-}
-
-// Helper function to update inventory in RDS with student account support
-async function updateInventory(products) {
-    // Only proceed if there are products
-    if (!products || products.length === 0) {
-        return;
-    }
-    
-    // Skip inventory updates in student mode
-    if (STUDENT_MODE) {
-        console.log('Student mode: Skipping inventory update');
-        return;
-    }
-    
-    // Create RDS connection with student account support
-    const connection = createRDSConnection();
-    
-    if (!connection) {
-        console.warn('RDS connection unavailable, skipping inventory update');
-        return;
-    }
-    
-    try {
-        // Update inventory for each product
-        for (const product of products) {
-            await new Promise((resolve, reject) => {
-                const query = 'UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND stock_quantity >= ?';
-                connection.query(
-                    query,
-                    [product.quantity, product.productId, product.quantity],
-                    (error, results) => {
-                        if (error) {
-                            console.warn(`Inventory update failed for product ${product.productId}:`, error.message);
-                            resolve(results); // Don't reject to avoid breaking the sale
-                        } else {
-                            resolve(results);
-                        }
-                    }
-                );
-            });
-        }
-    } catch (error) {
-        console.error('Error updating inventory:', error);
-        // Don't throw error in student mode to avoid breaking sales
-        if (!STUDENT_MODE) {
-            throw error;
-        }
-    } finally {
-        // Close the connection
-        if (connection) {
-            connection.end();
-        }
-    }
-}
-
-// Helper function to restore inventory for cancelled sales with student account support
-async function restoreInventory(products) {
-    // Only proceed if there are products
-    if (!products || products.length === 0) {
-        return;
-    }
-    
-    // Skip inventory restore in student mode
-    if (STUDENT_MODE) {
-        console.log('Student mode: Skipping inventory restore');
-        return;
-    }
-    
-    // Create RDS connection with student account support
-    const connection = createRDSConnection();
-    
-    if (!connection) {
-        console.warn('RDS connection unavailable, skipping inventory restore');
-        return;
-    }
-    
-    try {
-        // Restore inventory for each product
-        for (const product of products) {
-            await new Promise((resolve, reject) => {
-                const query = 'UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?';
-                connection.query(
-                    query,
-                    [product.quantity, product.productId],
-                    (error, results) => {
-                        if (error) {
-                            console.warn(`Inventory restore failed for product ${product.productId}:`, error.message);
-                            resolve(results); // Don't reject to avoid breaking the status update
-                        } else {
-                            resolve(results);
-                        }
-                    }
-                );
-            });
-        }
-    } catch (error) {
-        console.error('Error restoring inventory:', error);
-        // Don't throw error in student mode to avoid breaking status updates
-        if (!STUDENT_MODE) {
-            throw error;
-        }
-    } finally {
-        // Close the connection
-        if (connection) {
-            connection.end();
-        }
-    }
-}
-
-// Helper function to format the API response
-function formatResponse(statusCode, body) {
-    return {
-        statusCode,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
-        },
-        body: JSON.stringify(body)
-    };
-}

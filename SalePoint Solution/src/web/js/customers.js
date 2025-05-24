@@ -1,880 +1,955 @@
-/* Customer management functionality for SalePoint application */
+// SalePoint Solution - Customers Module
+class CustomersManager {
+    constructor() {
+        this.customers = [];
+        this.filteredCustomers = [];
+        this.currentPage = 1;
+        this.pageSize = 10;
+        this.totalPages = 0;
+        this.sortColumn = 'id';
+        this.sortDirection = 'asc';
+        this.searchTerm = '';
+        this.statusFilter = '';
+        this.isLoading = false;
+    }
 
-// API Endpoint
-const API_URL = API_CONFIG.baseUrl;
+    /**
+     * Initialize customers module
+     */
+    async init() {
+        await this.loadCustomers();
+        this.setupEventListeners();
+        this.setupValidation();
+    }
 
-// Initialize on page load
-$(document).ready(function() {
-    // Load customers and sales reps
-    loadCustomers();
-    loadSalesReps();
-    
-    // Set up event listeners
-    $('#search-btn').click(searchCustomers);
-    $('#customer-search').keypress(function(e) {
-        if (e.which === 13) {
-            searchCustomers();
+    /**
+     * Setup event listeners
+     */
+    setupEventListeners() {
+        // Add Customer button
+        document.getElementById('addCustomerBtn')?.addEventListener('click', () => {
+            this.showCustomerModal();
+        });
+
+        // Search input
+        document.getElementById('customerSearch')?.addEventListener('input', (e) => {
+            this.searchTerm = e.target.value;
+            this.applyFilters();
+        });
+
+        // Status filter
+        document.getElementById('statusFilter')?.addEventListener('change', (e) => {
+            this.statusFilter = e.target.value;
+            this.applyFilters();
+        });
+
+        // Page size selector
+        document.getElementById('pageSize')?.addEventListener('change', (e) => {
+            this.pageSize = parseInt(e.target.value);
+            this.currentPage = 1;
+            this.renderTable();
+            this.renderPagination();
+        });
+
+        // Refresh button
+        document.getElementById('refreshCustomers')?.addEventListener('click', () => {
+            this.loadCustomers();
+        });
+
+        // Bulk delete button
+        document.getElementById('bulkDeleteBtn')?.addEventListener('click', () => {
+            this.handleBulkDelete();
+        });
+
+        // Select all checkbox
+        document.getElementById('selectAllCustomers')?.addEventListener('change', (e) => {
+            this.handleSelectAll(e.target.checked);
+        });
+
+        // Customer form submission
+        document.getElementById('customerForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleCustomerSubmit();
+        });
+
+        // Export button
+        document.getElementById('exportCustomers')?.addEventListener('click', () => {
+            this.exportCustomers();
+        });
+
+        // Assign sales rep button
+        document.getElementById('assignSalesRepBtn')?.addEventListener('click', () => {
+            this.showAssignSalesRepModal();
+        });
+    }
+
+    /**
+     * Setup form validation
+     */
+    setupValidation() {
+        const form = document.getElementById('customerForm');
+        if (!form) return;
+
+        const inputs = form.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            input.addEventListener('blur', () => this.validateField(input));
+            input.addEventListener('input', () => this.clearFieldError(input));
+        });
+    }
+
+    /**
+     * Load customers from API
+     */
+    async loadCustomers() {
+        if (this.isLoading) return;
+
+        this.isLoading = true;
+        this.showLoading();
+
+        try {
+            const response = await window.api.getCustomers({
+                page: this.currentPage,
+                pageSize: this.pageSize,
+                search: this.searchTerm,
+                status: this.statusFilter,
+                sortColumn: this.sortColumn,
+                sortDirection: this.sortDirection
+            });
+
+            this.customers = response.customers || [];
+            this.totalPages = response.totalPages || 1;
+            this.applyFilters();
+            this.showSuccess('Customers loaded successfully');
+        } catch (error) {
+            console.error('Customers load error:', error);
+            this.showError('Failed to load customers: ' + error.message);
+        } finally {
+            this.isLoading = false;
+            this.hideLoading();
         }
-    });
-    
-    $('#sales-rep-filter').change(filterCustomersBySalesRep);
-    
-    // Event delegation for customer actions
-    $('#customers-table-body').on('click', '.view-customer-btn', function() {
-        const customerId = $(this).data('customer-id');
-        viewCustomerDetails(customerId);
-    });
-    
-    // Save new customer
-    $('#save-customer-btn').click(saveNewCustomer);
-    
-    // Customer details modal actions
-    $('#update-status-btn').click(updateCustomerStatus);
-    $('#save-notes-btn').click(saveCustomerNotes);
-});
-
-// Load all customers
-function loadCustomers() {
-    $('#customers-table-body').html('<tr><td colspan="7" class="text-center"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></td></tr>');
-    
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample customer data (would come from the API)
-        const customers = [
-            {
-                CustomerID: 'CUST001',
-                CustomerName: 'John Smith',
-                Email: 'john.smith@example.com',
-                Phone: '555-123-4567',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastUpdated: '2025-05-15T10:30:00Z'
-            },
-            {
-                CustomerID: 'CUST002',
-                CustomerName: 'Jane Doe',
-                Email: 'jane.doe@example.com',
-                Phone: '555-987-6543',
-                SalesRepID: 'SR003',
-                SalesRepName: 'Maria Garcia',
-                Status: 'Hot Lead',
-                LastUpdated: '2025-05-16T14:45:00Z'
-            },
-            {
-                CustomerID: 'CUST003',
-                CustomerName: 'Bob Johnson',
-                Email: 'bob.johnson@example.com',
-                Phone: '555-456-7890',
-                SalesRepID: 'SR002',
-                SalesRepName: 'David Lee',
-                Status: 'Pending',
-                LastUpdated: '2025-05-18T09:15:00Z'
-            },
-            {
-                CustomerID: 'CUST004',
-                CustomerName: 'Sarah Williams',
-                Email: 'sarah.williams@example.com',
-                Phone: '555-321-6547',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastUpdated: '2025-05-14T13:20:00Z'
-            },
-            {
-                CustomerID: 'CUST005',
-                CustomerName: 'Michael Brown',
-                Email: 'michael.brown@example.com',
-                Phone: '555-654-3210',
-                SalesRepID: 'SR004',
-                SalesRepName: 'James Wilson',
-                Status: 'Inactive',
-                LastUpdated: '2025-05-10T11:05:00Z'
-            }
-        ];
-        
-        displayCustomers(customers);
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/customers`,
-            method: 'GET',
-            success: function(data) {
-                displayCustomers(data);
-            },
-            error: function(error) {
-                console.error('Error loading customers:', error);
-                $('#customers-table-body').html('<tr><td colspan="7" class="text-center"><div class="alert alert-danger">Error loading customers. Please try again later.</div></td></tr>');
-            }
-        });
-        */
-    }, 800);
-}
-
-// Load all sales representatives
-function loadSalesReps() {
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample sales rep data (would come from the API)
-        const salesReps = [
-            { id: 'SR001', name: 'Emily Johnson' },
-            { id: 'SR002', name: 'David Lee' },
-            { id: 'SR003', name: 'Maria Garcia' },
-            { id: 'SR004', name: 'James Wilson' },
-            { id: 'SR005', name: 'Linda Chen' }
-        ];
-        
-        // Populate sales rep filter dropdown
-        let salesRepFilterOptions = '<option value="">All Sales Representatives</option>';
-        salesReps.forEach(rep => {
-            salesRepFilterOptions += `<option value="${rep.id}">${rep.name}</option>`;
-        });
-        $('#sales-rep-filter').html(salesRepFilterOptions);
-        
-        // Populate sales rep dropdown in Add Customer modal
-        let assignedSalesRepOptions = '<option value="">Select Sales Rep</option>';
-        salesReps.forEach(rep => {
-            assignedSalesRepOptions += `<option value="${rep.id}">${rep.name}</option>`;
-        });
-        $('#assigned-sales-rep').html(assignedSalesRepOptions);
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/salesreps`,
-            method: 'GET',
-            success: function(data) {
-                // Populate sales rep filter dropdown
-                let salesRepFilterOptions = '<option value="">All Sales Representatives</option>';
-                data.forEach(rep => {
-                    salesRepFilterOptions += `<option value="${rep.id}">${rep.name}</option>`;
-                });
-                $('#sales-rep-filter').html(salesRepFilterOptions);
-                
-                // Populate sales rep dropdown in Add Customer modal
-                let assignedSalesRepOptions = '<option value="">Select Sales Rep</option>';
-                data.forEach(rep => {
-                    assignedSalesRepOptions += `<option value="${rep.id}">${rep.name}</option>`;
-                });
-                $('#assigned-sales-rep').html(assignedSalesRepOptions);
-            },
-            error: function(error) {
-                console.error('Error loading sales reps:', error);
-            }
-        });
-        */
-    }, 500);
-}
-
-// Filter customers by sales rep
-function filterCustomersBySalesRep() {
-    const salesRepId = $('#sales-rep-filter').val();
-    
-    if (!salesRepId) {
-        // If no sales rep selected, load all customers
-        loadCustomers();
-        return;
     }
-    
-    $('#customers-table-body').html('<tr><td colspan="7" class="text-center"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></td></tr>');
-    
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample customer data (would come from the API)
-        const allCustomers = [
-            {
-                CustomerID: 'CUST001',
-                CustomerName: 'John Smith',
-                Email: 'john.smith@example.com',
-                Phone: '555-123-4567',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastUpdated: '2025-05-15T10:30:00Z'
-            },
-            {
-                CustomerID: 'CUST002',
-                CustomerName: 'Jane Doe',
-                Email: 'jane.doe@example.com',
-                Phone: '555-987-6543',
-                SalesRepID: 'SR003',
-                SalesRepName: 'Maria Garcia',
-                Status: 'Hot Lead',
-                LastUpdated: '2025-05-16T14:45:00Z'
-            },
-            {
-                CustomerID: 'CUST003',
-                CustomerName: 'Bob Johnson',
-                Email: 'bob.johnson@example.com',
-                Phone: '555-456-7890',
-                SalesRepID: 'SR002',
-                SalesRepName: 'David Lee',
-                Status: 'Pending',
-                LastUpdated: '2025-05-18T09:15:00Z'
-            },
-            {
-                CustomerID: 'CUST004',
-                CustomerName: 'Sarah Williams',
-                Email: 'sarah.williams@example.com',
-                Phone: '555-321-6547',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastUpdated: '2025-05-14T13:20:00Z'
-            },
-            {
-                CustomerID: 'CUST005',
-                CustomerName: 'Michael Brown',
-                Email: 'michael.brown@example.com',
-                Phone: '555-654-3210',
-                SalesRepID: 'SR004',
-                SalesRepName: 'James Wilson',
-                Status: 'Inactive',
-                LastUpdated: '2025-05-10T11:05:00Z'
-            }
-        ];
-        
-        // Filter customers by the selected sales rep
-        const filteredCustomers = allCustomers.filter(customer => customer.SalesRepID === salesRepId);
-        
-        displayCustomers(filteredCustomers);
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/salesreps/${salesRepId}/customers`,
-            method: 'GET',
-            success: function(data) {
-                displayCustomers(data);
-            },
-            error: function(error) {
-                console.error('Error filtering customers:', error);
-                $('#customers-table-body').html('<tr><td colspan="7" class="text-center"><div class="alert alert-danger">Error filtering customers. Please try again later.</div></td></tr>');
-            }
-        });
-        */
-    }, 600);
-}
 
-// Search customers based on input
-function searchCustomers() {
-    const searchTerm = $('#customer-search').val().toLowerCase();
-    
-    if (!searchTerm) {
-        // If no search term, load all customers
-        loadCustomers();
-        return;
-    }
-    
-    $('#customers-table-body').html('<tr><td colspan="7" class="text-center"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></td></tr>');
-    
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample customer data (would come from the API)
-        const allCustomers = [
-            {
-                CustomerID: 'CUST001',
-                CustomerName: 'John Smith',
-                Email: 'john.smith@example.com',
-                Phone: '555-123-4567',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastUpdated: '2025-05-15T10:30:00Z'
-            },
-            {
-                CustomerID: 'CUST002',
-                CustomerName: 'Jane Doe',
-                Email: 'jane.doe@example.com',
-                Phone: '555-987-6543',
-                SalesRepID: 'SR003',
-                SalesRepName: 'Maria Garcia',
-                Status: 'Hot Lead',
-                LastUpdated: '2025-05-16T14:45:00Z'
-            },
-            {
-                CustomerID: 'CUST003',
-                CustomerName: 'Bob Johnson',
-                Email: 'bob.johnson@example.com',
-                Phone: '555-456-7890',
-                SalesRepID: 'SR002',
-                SalesRepName: 'David Lee',
-                Status: 'Pending',
-                LastUpdated: '2025-05-18T09:15:00Z'
-            },
-            {
-                CustomerID: 'CUST004',
-                CustomerName: 'Sarah Williams',
-                Email: 'sarah.williams@example.com',
-                Phone: '555-321-6547',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastUpdated: '2025-05-14T13:20:00Z'
-            },
-            {
-                CustomerID: 'CUST005',
-                CustomerName: 'Michael Brown',
-                Email: 'michael.brown@example.com',
-                Phone: '555-654-3210',
-                SalesRepID: 'SR004',
-                SalesRepName: 'James Wilson',
-                Status: 'Inactive',
-                LastUpdated: '2025-05-10T11:05:00Z'
-            }
-        ];
-        
-        // Filter customers by the search term
-        const filteredCustomers = allCustomers.filter(customer => 
-            customer.CustomerID.toLowerCase().includes(searchTerm) ||
-            customer.CustomerName.toLowerCase().includes(searchTerm) ||
-            customer.Email.toLowerCase().includes(searchTerm) ||
-            customer.Phone.toLowerCase().includes(searchTerm)
-        );
-        
-        displayCustomers(filteredCustomers);
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/customers?search=${encodeURIComponent(searchTerm)}`,
-            method: 'GET',
-            success: function(data) {
-                displayCustomers(data);
-            },
-            error: function(error) {
-                console.error('Error searching customers:', error);
-                $('#customers-table-body').html('<tr><td colspan="7" class="text-center"><div class="alert alert-danger">Error searching customers. Please try again later.</div></td></tr>');
-            }
-        });
-        */
-    }, 600);
-}
+    /**
+     * Apply filters to customers
+     */
+    applyFilters() {
+        let filtered = [...this.customers];
 
-// Display customers in the table
-function displayCustomers(customers) {
-    if (!customers || customers.length === 0) {
-        $('#customers-table-body').html('<tr><td colspan="7" class="text-center">No customers found.</td></tr>');
-        return;
-    }
-    
-    let html = '';
-    customers.forEach(customer => {
-        // Determine status badge class
-        let statusClass = '';
-        switch(customer.Status) {
-            case 'Active':
-                statusClass = 'badge-success';
-                break;
-            case 'Pending':
-                statusClass = 'badge-warning';
-                break;
-            case 'Inactive':
-                statusClass = 'badge-secondary';
-                break;
-            case 'Hot Lead':
-                statusClass = 'badge-danger';
-                break;
-            default:
-                statusClass = 'badge-info';
+        // Apply search filter
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            filtered = filtered.filter(customer => 
+                customer.name.toLowerCase().includes(term) ||
+                customer.email.toLowerCase().includes(term) ||
+                customer.phone.toLowerCase().includes(term) ||
+                customer.company.toLowerCase().includes(term)
+            );
         }
+
+        // Apply status filter
+        if (this.statusFilter) {
+            filtered = filtered.filter(customer => 
+                customer.status === this.statusFilter
+            );
+        }
+
+        this.filteredCustomers = filtered;
+        this.currentPage = 1;
+        this.totalPages = Math.ceil(filtered.length / this.pageSize);
         
-        html += `
-            <tr>
-                <td>${customer.CustomerID}</td>
-                <td>${customer.CustomerName}</td>
-                <td>${customer.Email}</td>
-                <td>${customer.Phone || '-'}</td>
-                <td>${customer.SalesRepName}</td>
-                <td><span class="badge ${statusClass}">${customer.Status}</span></td>
+        this.renderTable();
+        this.renderPagination();
+        this.updateResultsCount();
+    }
+
+    /**
+     * Sort customers by column
+     */
+    sortCustomers(column) {
+        if (this.sortColumn === column) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = 'asc';
+        }
+
+        this.filteredCustomers.sort((a, b) => {
+            let aValue = a[column];
+            let bValue = b[column];
+
+            // Handle different data types
+            if (column === 'id') {
+                aValue = parseInt(aValue);
+                bValue = parseInt(bValue);
+            } else if (column === 'created_at') {
+                aValue = new Date(aValue);
+                bValue = new Date(bValue);
+            } else {
+                aValue = String(aValue).toLowerCase();
+                bValue = String(bValue).toLowerCase();
+            }
+
+            if (aValue < bValue) return this.sortDirection === 'asc' ? -1 : 1;
+            if (aValue > bValue) return this.sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        this.renderTable();
+        this.updateSortIndicators();
+    }
+
+    /**
+     * Update sort indicators in table headers
+     */
+    updateSortIndicators() {
+        const headers = document.querySelectorAll('[data-sort]');
+        headers.forEach(header => {
+            header.classList.remove('sort-asc', 'sort-desc');
+            if (header.dataset.sort === this.sortColumn) {
+                header.classList.add(`sort-${this.sortDirection}`);
+            }
+        });
+    }
+
+    /**
+     * Render customers table
+     */
+    renderTable() {
+        const tbody = document.querySelector('#customersTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        const startIndex = (this.currentPage - 1) * this.pageSize;
+        const endIndex = startIndex + this.pageSize;
+        const pageCustomers = this.filteredCustomers.slice(startIndex, endIndex);
+
+        if (pageCustomers.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">
+                        No customers found
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        pageCustomers.forEach(customer => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
                 <td>
-                    <button class="btn btn-sm btn-info view-customer-btn" data-customer-id="${customer.CustomerID}">
-                        <i class="fas fa-eye"></i> View
+                    <input type="checkbox" class="form-check-input customer-checkbox" 
+                           value="${customer.id}" data-customer-id="${customer.id}">
+                </td>
+                <td>${customer.id}</td>
+                <td>${this.escapeHtml(customer.name)}</td>
+                <td>${this.escapeHtml(customer.email)}</td>
+                <td>${this.escapeHtml(customer.phone)}</td>
+                <td>${this.escapeHtml(customer.company || 'N/A')}</td>
+                <td>
+                    <span class="badge badge-${customer.status === 'active' ? 'success' : 'secondary'}">
+                        ${customer.status}
+                    </span>
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-primary me-1" 
+                            onclick="customersManager.showCustomerModal(${customer.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-info me-1" 
+                            onclick="customersManager.viewCustomer(${customer.id})">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-warning me-1" 
+                            onclick="customersManager.showSalesHistory(${customer.id})">
+                        <i class="fas fa-shopping-cart"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger" 
+                            onclick="customersManager.deleteCustomer(${customer.id})">
+                        <i class="fas fa-trash"></i>
                     </button>
                 </td>
-            </tr>
-        `;
-    });
-    
-    $('#customers-table-body').html(html);
-}
+            `;
+            tbody.appendChild(row);
 
-// View customer details
-function viewCustomerDetails(customerId) {
-    // Simulate API call for customer details
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample customer data (would come from the API)
-        const customers = {
-            'CUST001': {
-                CustomerID: 'CUST001',
-                CustomerName: 'John Smith',
-                Email: 'john.smith@example.com',
-                Phone: '555-123-4567',
-                Address: '123 Main St, Anytown, USA',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastContact: '2025-05-15T10:30:00Z',
-                Notes: 'Interested in new laptop models. Follow up next week.',
-                LastUpdated: '2025-05-15T10:30:00Z'
-            },
-            'CUST002': {
-                CustomerID: 'CUST002',
-                CustomerName: 'Jane Doe',
-                Email: 'jane.doe@example.com',
-                Phone: '555-987-6543',
-                Address: '456 Oak Ave, Somewhere, USA',
-                SalesRepID: 'SR003',
-                SalesRepName: 'Maria Garcia',
-                Status: 'Hot Lead',
-                LastContact: '2025-05-16T14:45:00Z',
-                Notes: 'Looking to purchase office furniture for new location. Scheduled demo for next Monday.',
-                LastUpdated: '2025-05-16T14:45:00Z'
-            },
-            'CUST003': {
-                CustomerID: 'CUST003',
-                CustomerName: 'Bob Johnson',
-                Email: 'bob.johnson@example.com',
-                Phone: '555-456-7890',
-                Address: '789 Pine Rd, Nowhere, USA',
-                SalesRepID: 'SR002',
-                SalesRepName: 'David Lee',
-                Status: 'Pending',
-                LastContact: '2025-05-18T09:15:00Z',
-                Notes: 'Considering wireless headphones for entire team. Needs price quote.',
-                LastUpdated: '2025-05-18T09:15:00Z'
-            },
-            'CUST004': {
-                CustomerID: 'CUST004',
-                CustomerName: 'Sarah Williams',
-                Email: 'sarah.williams@example.com',
-                Phone: '555-321-6547',
-                Address: '321 Maple Dr, Anyplace, USA',
-                SalesRepID: 'SR001',
-                SalesRepName: 'Emily Johnson',
-                Status: 'Active',
-                LastContact: '2025-05-14T13:20:00Z',
-                Notes: 'Regular customer. Just purchased new TV. May be interested in sound system upgrade.',
-                LastUpdated: '2025-05-14T13:20:00Z'
-            },
-            'CUST005': {
-                CustomerID: 'CUST005',
-                CustomerName: 'Michael Brown',
-                Email: 'michael.brown@example.com',
-                Phone: '555-654-3210',
-                Address: '654 Cedar Ln, Somewhere, USA',
-                SalesRepID: 'SR004',
-                SalesRepName: 'James Wilson',
-                Status: 'Inactive',
-                LastContact: '2025-05-10T11:05:00Z',
-                Notes: 'No purchases in last 6 months. Consider special promotion to re-engage.',
-                LastUpdated: '2025-05-10T11:05:00Z'
-            }
-        };
-        
-        const customer = customers[customerId];
-        
-        if (customer) {
-            // Populate customer details modal
-            $('#customerDetailsTitle').text(`Customer: ${customer.CustomerName}`);
-            $('#detail-customer-id').text(customer.CustomerID);
-            $('#detail-customer-name').text(customer.CustomerName);
-            $('#detail-customer-email').text(customer.Email);
-            $('#detail-customer-phone').text(customer.Phone || '-');
-            $('#detail-customer-address').text(customer.Address || '-');
-            $('#detail-sales-rep').text(customer.SalesRepName);
-            
-            // Set status badge
-            let statusClass = '';
-            switch(customer.Status) {
-                case 'Active':
-                    statusClass = 'badge-success';
-                    break;
-                case 'Pending':
-                    statusClass = 'badge-warning';
-                    break;
-                case 'Inactive':
-                    statusClass = 'badge-secondary';
-                    break;
-                case 'Hot Lead':
-                    statusClass = 'badge-danger';
-                    break;
-                default:
-                    statusClass = 'badge-info';
-            }
-            $('#detail-status').text(customer.Status).removeClass().addClass(`badge ${statusClass}`);
-            
-            // Set last contact date
-            $('#detail-last-contact').text(formatDate(customer.LastContact));
-            
-            // Set customer status dropdown
-            $('#update-status').val(customer.Status);
-            
-            // Set notes
-            $('#customer-notes').val(customer.Notes);
-            
-            // Store customer ID for update operations
-            $('#customerDetailsModal').data('customer-id', customer.CustomerID);
-            $('#customerDetailsModal').data('sales-rep-id', customer.SalesRepID);
-            
-            // Load customer's recent sales
-            loadCustomerSales(customerId);
-            
-            // Show the modal
-            $('#customerDetailsModal').modal('show');
-        } else {
-            alert('Customer details not found.');
-        }
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/customers/${customerId}`,
-            method: 'GET',
-            success: function(customer) {
-                // Populate customer details modal
-                $('#customerDetailsTitle').text(`Customer: ${customer.CustomerName}`);
-                $('#detail-customer-id').text(customer.CustomerID);
-                $('#detail-customer-name').text(customer.CustomerName);
-                $('#detail-customer-email').text(customer.Email);
-                $('#detail-customer-phone').text(customer.Phone || '-');
-                $('#detail-customer-address').text(customer.Address || '-');
-                $('#detail-sales-rep').text(customer.SalesRepName);
-                
-                // Set status badge
-                let statusClass = '';
-                switch(customer.Status) {
-                    case 'Active':
-                        statusClass = 'badge-success';
-                        break;
-                    case 'Pending':
-                        statusClass = 'badge-warning';
-                        break;
-                    case 'Inactive':
-                        statusClass = 'badge-secondary';
-                        break;
-                    case 'Hot Lead':
-                        statusClass = 'badge-danger';
-                        break;
-                    default:
-                        statusClass = 'badge-info';
-                }
-                $('#detail-status').text(customer.Status).removeClass().addClass(`badge ${statusClass}`);
-                
-                // Set last contact date
-                $('#detail-last-contact').text(formatDate(customer.LastContact));
-                
-                // Set customer status dropdown
-                $('#update-status').val(customer.Status);
-                
-                // Set notes
-                $('#customer-notes').val(customer.Notes);
-                
-                // Store customer ID for update operations
-                $('#customerDetailsModal').data('customer-id', customer.CustomerID);
-                $('#customerDetailsModal').data('sales-rep-id', customer.SalesRepID);
-                
-                // Load customer's recent sales
-                loadCustomerSales(customerId);
-                
-                // Show the modal
-                $('#customerDetailsModal').modal('show');
-            },
-            error: function(error) {
-                console.error('Error loading customer details:', error);
-                alert('Error loading customer details. Please try again later.');
-            }
-        });
-        */
-    }, 300);
-}
-
-// Load customer's recent sales
-function loadCustomerSales(customerId) {
-    // Simulate API call for customer sales
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample sales data (would come from the API)
-        const customerSales = [
-            { saleId: 'SALE-125478', date: '2025-05-19T14:35:00Z', amount: 1899.98, status: 'Completed' },
-            { saleId: 'SALE-125450', date: '2025-05-10T11:22:00Z', amount: 599.99, status: 'Completed' },
-            { saleId: 'SALE-125432', date: '2025-04-28T16:45:00Z', amount: 289.97, status: 'Completed' },
-            { saleId: 'SALE-125415', date: '2025-04-15T10:15:00Z', amount: 1349.98, status: 'Completed' }
-        ];
-        
-        let salesHtml = '';
-        if (customerSales.length === 0) {
-            salesHtml = '<tr><td colspan="4" class="text-center">No sales found for this customer.</td></tr>';
-        } else {
-            customerSales.forEach(sale => {
-                let statusClass = '';
-                switch(sale.status) {
-                    case 'Completed':
-                        statusClass = 'badge-success';
-                        break;
-                    case 'Pending':
-                        statusClass = 'badge-warning';
-                        break;
-                    case 'Cancelled':
-                        statusClass = 'badge-danger';
-                        break;
-                    default:
-                        statusClass = 'badge-secondary';
-                }
-                
-                salesHtml += `
-                    <tr>
-                        <td>${sale.saleId}</td>
-                        <td>${formatDate(sale.date)}</td>
-                        <td>${formatCurrency(sale.amount)}</td>
-                        <td><span class="badge ${statusClass}">${sale.status}</span></td>
-                    </tr>
-                `;
+            // Add click event for checkbox change
+            const checkbox = row.querySelector('.customer-checkbox');
+            checkbox.addEventListener('change', () => {
+                this.updateBulkActionButtons();
             });
+        });
+
+        // Setup sorting for table headers
+        this.setupTableSorting();
+    }
+
+    /**
+     * Setup table sorting
+     */
+    setupTableSorting() {
+        const headers = document.querySelectorAll('[data-sort]');
+        headers.forEach(header => {
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', () => {
+                this.sortCustomers(header.dataset.sort);
+            });
+        });
+    }
+
+    /**
+     * Render pagination
+     */
+    renderPagination() {
+        const pagination = document.getElementById('customersPagination');
+        if (!pagination) return;
+
+        pagination.innerHTML = '';
+
+        if (this.totalPages <= 1) return;
+
+        // Previous button
+        const prevBtn = document.createElement('li');
+        prevBtn.className = `page-item ${this.currentPage === 1 ? 'disabled' : ''}`;
+        prevBtn.innerHTML = `
+            <a class="page-link" href="#" data-page="${this.currentPage - 1}">
+                <i class="fas fa-chevron-left"></i>
+            </a>
+        `;
+        pagination.appendChild(prevBtn);
+
+        // Page numbers
+        const startPage = Math.max(1, this.currentPage - 2);
+        const endPage = Math.min(this.totalPages, this.currentPage + 2);
+
+        for (let i = startPage; i <= endPage; i++) {
+            const pageBtn = document.createElement('li');
+            pageBtn.className = `page-item ${this.currentPage === i ? 'active' : ''}`;
+            pageBtn.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+            pagination.appendChild(pageBtn);
         }
-        
-        $('#customer-sales-table').html(salesHtml);
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/sales?customerId=${customerId}`,
-            method: 'GET',
-            success: function(data) {
-                let salesHtml = '';
-                if (data.length === 0) {
-                    salesHtml = '<tr><td colspan="4" class="text-center">No sales found for this customer.</td></tr>';
-                } else {
-                    data.forEach(sale => {
-                        let statusClass = '';
-                        switch(sale.status) {
-                            case 'Completed':
-                                statusClass = 'badge-success';
-                                break;
-                            case 'Pending':
-                                statusClass = 'badge-warning';
-                                break;
-                            case 'Cancelled':
-                                statusClass = 'badge-danger';
-                                break;
-                            default:
-                                statusClass = 'badge-secondary';
-                        }
-                        
-                        salesHtml += `
+
+        // Next button
+        const nextBtn = document.createElement('li');
+        nextBtn.className = `page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}`;
+        nextBtn.innerHTML = `
+            <a class="page-link" href="#" data-page="${this.currentPage + 1}">
+                <i class="fas fa-chevron-right"></i>
+            </a>
+        `;
+        pagination.appendChild(nextBtn);
+
+        // Add click event listeners
+        pagination.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (e.target.closest('.page-link')) {
+                const page = parseInt(e.target.closest('.page-link').dataset.page);
+                if (page && page !== this.currentPage && page >= 1 && page <= this.totalPages) {
+                    this.currentPage = page;
+                    this.renderTable();
+                    this.renderPagination();
+                }
+            }
+        });
+    }
+
+    /**
+     * Update results count display
+     */
+    updateResultsCount() {
+        const countElement = document.getElementById('customersCount');
+        if (countElement) {
+            const startIndex = (this.currentPage - 1) * this.pageSize + 1;
+            const endIndex = Math.min(this.currentPage * this.pageSize, this.filteredCustomers.length);
+            countElement.textContent = `Showing ${startIndex}-${endIndex} of ${this.filteredCustomers.length} customers`;
+        }
+    }
+
+    /**
+     * Show customer modal for add/edit
+     */
+    showCustomerModal(customerId = null) {
+        const modal = new bootstrap.Modal(document.getElementById('customerModal'));
+        const form = document.getElementById('customerForm');
+        const title = document.getElementById('customerModalLabel');
+
+        if (customerId) {
+            // Edit mode
+            const customer = this.customers.find(c => c.id === customerId);
+            if (customer) {
+                title.textContent = 'Edit Customer';
+                this.populateCustomerForm(customer);
+            }
+        } else {
+            // Add mode
+            title.textContent = 'Add New Customer';
+            form.reset();
+            this.clearFormErrors();
+        }
+
+        modal.show();
+    }
+
+    /**
+     * Populate customer form with data
+     */
+    populateCustomerForm(customer) {
+        const form = document.getElementById('customerForm');
+        if (!form) return;
+
+        form.customer_id.value = customer.id || '';
+        form.customer_name.value = customer.name || '';
+        form.email.value = customer.email || '';
+        form.phone.value = customer.phone || '';
+        form.company.value = customer.company || '';
+        form.address.value = customer.address || '';
+        form.city.value = customer.city || '';
+        form.state.value = customer.state || '';
+        form.zip_code.value = customer.zip_code || '';
+        form.status.value = customer.status || 'active';
+    }
+
+    /**
+     * Handle customer form submission
+     */
+    async handleCustomerSubmit() {
+        const form = document.getElementById('customerForm');
+        if (!form || !this.validateForm()) return;
+
+        const formData = new FormData(form);
+        const customerData = {
+            name: formData.get('customer_name'),
+            email: formData.get('email'),
+            phone: formData.get('phone'),
+            company: formData.get('company'),
+            address: formData.get('address'),
+            city: formData.get('city'),
+            state: formData.get('state'),
+            zip_code: formData.get('zip_code'),
+            status: formData.get('status')
+        };
+
+        const customerId = formData.get('customer_id');
+        const isEdit = customerId && customerId !== '';
+
+        try {
+            let response;
+            if (isEdit) {
+                response = await window.api.updateCustomer(customerId, customerData);
+                this.showSuccess('Customer updated successfully');
+            } else {
+                response = await window.api.createCustomer(customerData);
+                this.showSuccess('Customer created successfully');
+            }
+
+            // Close modal and refresh data
+            const modal = bootstrap.Modal.getInstance(document.getElementById('customerModal'));
+            modal.hide();
+            await this.loadCustomers();
+
+        } catch (error) {
+            console.error('Customer save error:', error);
+            this.showError('Failed to save customer: ' + error.message);
+        }
+    }
+
+    /**
+     * View customer details
+     */
+    viewCustomer(customerId) {
+        const customer = this.customers.find(c => c.id === customerId);
+        if (!customer) return;
+
+        const modal = new bootstrap.Modal(document.getElementById('customerViewModal'));
+        const content = document.getElementById('customerViewContent');
+
+        content.innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Contact Information</h6>
+                    <table class="table table-borderless">
+                        <tr><td><strong>ID:</strong></td><td>${customer.id}</td></tr>
+                        <tr><td><strong>Name:</strong></td><td>${this.escapeHtml(customer.name)}</td></tr>
+                        <tr><td><strong>Email:</strong></td><td>${this.escapeHtml(customer.email)}</td></tr>
+                        <tr><td><strong>Phone:</strong></td><td>${this.escapeHtml(customer.phone)}</td></tr>
+                        <tr><td><strong>Company:</strong></td><td>${this.escapeHtml(customer.company || 'N/A')}</td></tr>
+                        <tr><td><strong>Status:</strong></td><td>
+                            <span class="badge badge-${customer.status === 'active' ? 'success' : 'secondary'}">
+                                ${customer.status}
+                            </span>
+                        </td></tr>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h6>Address Information</h6>
+                    <table class="table table-borderless">
+                        <tr><td><strong>Address:</strong></td><td>${this.escapeHtml(customer.address || 'N/A')}</td></tr>
+                        <tr><td><strong>City:</strong></td><td>${this.escapeHtml(customer.city || 'N/A')}</td></tr>
+                        <tr><td><strong>State:</strong></td><td>${this.escapeHtml(customer.state || 'N/A')}</td></tr>
+                        <tr><td><strong>ZIP Code:</strong></td><td>${this.escapeHtml(customer.zip_code || 'N/A')}</td></tr>
+                        <tr><td><strong>Created:</strong></td><td>${window.ConfigHelper.formatDate(customer.created_at)}</td></tr>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        modal.show();
+    }
+
+    /**
+     * Show sales history for customer
+     */
+    async showSalesHistory(customerId) {
+        const customer = this.customers.find(c => c.id === customerId);
+        if (!customer) return;
+
+        try {
+            const salesData = await window.api.getSales({ customer_id: customerId });
+            const modal = new bootstrap.Modal(document.getElementById('salesHistoryModal'));
+            const content = document.getElementById('salesHistoryContent');
+            const title = document.getElementById('salesHistoryTitle');
+
+            title.textContent = `Sales History - ${customer.name}`;
+
+            if (salesData.sales && salesData.sales.length > 0) {
+                let tableHtml = `
+                    <table class="table table-striped">
+                        <thead>
                             <tr>
-                                <td>${sale.saleId}</td>
-                                <td>${formatDate(sale.date)}</td>
-                                <td>${formatCurrency(sale.amount)}</td>
-                                <td><span class="badge ${statusClass}">${sale.status}</span></td>
+                                <th>Sale ID</th>
+                                <th>Date</th>
+                                <th>Total Amount</th>
+                                <th>Status</th>
+                                <th>Sales Rep</th>
                             </tr>
-                        `;
-                    });
-                }
-                
-                $('#customer-sales-table').html(salesHtml);
-            },
-            error: function(error) {
-                console.error('Error loading customer sales:', error);
-                $('#customer-sales-table').html('<tr><td colspan="4" class="text-center">Error loading sales data.</td></tr>');
-            }
-        });
-        */
-    }, 500);
-}
+                        </thead>
+                        <tbody>
+                `;
 
-// Save a new customer
-function saveNewCustomer() {
-    // Get form values
-    const customerName = $('#customer-name').val();
-    const customerEmail = $('#customer-email').val();
-    const customerPhone = $('#customer-phone').val();
-    const customerAddress = $('#customer-address').val();
-    const salesRepId = $('#assigned-sales-rep').val();
-    
-    // Validate required fields
-    if (!customerName || !customerEmail || !salesRepId) {
-        alert('Please fill in all required fields (Name, Email, and Sales Representative).');
-        return;
-    }
-    
-    // Get sales rep name from the dropdown
-    const salesRepName = $('#assigned-sales-rep option:selected').text();
-    
-    // Prepare the data to send to the API
-    const customerData = {
-        customerName: customerName,
-        email: customerEmail,
-        phone: customerPhone,
-        address: customerAddress,
-        salesRepId: salesRepId,
-        salesRepName: salesRepName,
-        status: 'Active' // Default status for new customers
-    };
-    
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Generate a customer ID (would be done by the API in a real implementation)
-        const customerId = 'CUST' + Math.floor(Math.random() * 9000 + 1000);
-        
-        alert(`Customer ${customerName} has been successfully added with ID: ${customerId}`);
-        
-        // Close the modal and reset the form
-        $('#addCustomerModal').modal('hide');
-        $('#add-customer-form')[0].reset();
-        
-        // Reload the customers table
-        loadCustomers();
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/assignments`,
-            method: 'POST',
-            data: JSON.stringify(customerData),
-            contentType: 'application/json',
-            success: function(response) {
-                alert(`Customer ${customerName} has been successfully added.`);
-                
-                // Close the modal and reset the form
-                $('#addCustomerModal').modal('hide');
-                $('#add-customer-form')[0].reset();
-                
-                // Reload the customers table
-                loadCustomers();
-            },
-            error: function(error) {
-                console.error('Error adding customer:', error);
-                alert('Error adding customer. Please try again later.');
-            }
-        });
-        */
-    }, 1000);
-}
+                salesData.sales.forEach(sale => {
+                    tableHtml += `
+                        <tr>
+                            <td>#${sale.id}</td>
+                            <td>${window.ConfigHelper.formatDate(sale.sale_date)}</td>
+                            <td>${window.ConfigHelper.formatCurrency(sale.total_amount)}</td>
+                            <td>
+                                <span class="badge badge-${this.getSaleStatusBadgeClass(sale.status)}">
+                                    ${sale.status}
+                                </span>
+                            </td>
+                            <td>${sale.sales_rep_name || 'N/A'}</td>
+                        </tr>
+                    `;
+                });
 
-// Update customer status
-function updateCustomerStatus() {
-    const customerId = $('#customerDetailsModal').data('customer-id');
-    const salesRepId = $('#customerDetailsModal').data('sales-rep-id');
-    const newStatus = $('#update-status').val();
-    
-    if (!customerId || !salesRepId || !newStatus) {
-        alert('Missing required information to update status.');
-        return;
-    }
-    
-    // Prepare the data to send to the API
-    const updateData = {
-        salesRepId: salesRepId,
-        status: newStatus,
-        notes: $('#customer-notes').val()
-    };
-    
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Update the status badge in the modal
-        let statusClass = '';
-        switch(newStatus) {
-            case 'Active':
-                statusClass = 'badge-success';
-                break;
-            case 'Pending':
-                statusClass = 'badge-warning';
-                break;
-            case 'Inactive':
-                statusClass = 'badge-secondary';
-                break;
-            case 'Hot Lead':
-                statusClass = 'badge-danger';
-                break;
-            default:
-                statusClass = 'badge-info';
+                tableHtml += '</tbody></table>';
+                content.innerHTML = tableHtml;
+            } else {
+                content.innerHTML = '<p class="text-muted text-center py-4">No sales history found for this customer.</p>';
+            }
+
+            modal.show();
+        } catch (error) {
+            console.error('Sales history error:', error);
+            this.showError('Failed to load sales history: ' + error.message);
         }
-        $('#detail-status').text(newStatus).removeClass().addClass(`badge ${statusClass}`);
+    }
+
+    /**
+     * Show assign sales rep modal
+     */
+    async showAssignSalesRepModal() {
+        const selectedIds = this.getSelectedCustomerIds();
+        if (selectedIds.length === 0) {
+            this.showError('Please select customers to assign');
+            return;
+        }
+
+        try {
+            // Load sales representatives
+            const salesRepsData = await window.api.getSalesReps();
+            const modal = new bootstrap.Modal(document.getElementById('assignSalesRepModal'));
+            const select = document.getElementById('salesRepSelect');
+
+            // Populate sales reps dropdown
+            select.innerHTML = '<option value="">Select Sales Representative</option>';
+            salesRepsData.salesReps.forEach(rep => {
+                const option = document.createElement('option');
+                option.value = rep.id;
+                option.textContent = `${rep.name} (${rep.email})`;
+                select.appendChild(option);
+            });
+
+            // Update modal title
+            const title = document.getElementById('assignSalesRepTitle');
+            title.textContent = `Assign Sales Rep to ${selectedIds.length} Customer(s)`;
+
+            modal.show();
+        } catch (error) {
+            console.error('Load sales reps error:', error);
+            this.showError('Failed to load sales representatives: ' + error.message);
+        }
+    }
+
+    /**
+     * Handle sales rep assignment
+     */
+    async handleSalesRepAssignment() {
+        const selectedCustomerIds = this.getSelectedCustomerIds();
+        const salesRepId = document.getElementById('salesRepSelect').value;
+
+        if (!salesRepId) {
+            this.showError('Please select a sales representative');
+            return;
+        }
+
+        try {
+            await Promise.all(selectedCustomerIds.map(customerId => 
+                window.api.assignCustomerToSalesRep({
+                    customer_id: customerId,
+                    sales_rep_id: salesRepId
+                })
+            ));
+
+            this.showSuccess(`${selectedCustomerIds.length} customers assigned successfully`);
+            
+            // Close modal and refresh data
+            const modal = bootstrap.Modal.getInstance(document.getElementById('assignSalesRepModal'));
+            modal.hide();
+            await this.loadCustomers();
+        } catch (error) {
+            console.error('Assignment error:', error);
+            this.showError('Failed to assign sales representative: ' + error.message);
+        }
+    }
+
+    /**
+     * Delete customer
+     */
+    async deleteCustomer(customerId) {
+        const customer = this.customers.find(c => c.id === customerId);
+        if (!customer) return;
+
+        const confirmed = confirm(`Are you sure you want to delete "${customer.name}"?`);
+        if (!confirmed) return;
+
+        try {
+            await window.api.deleteCustomer(customerId);
+            this.showSuccess('Customer deleted successfully');
+            await this.loadCustomers();
+        } catch (error) {
+            console.error('Customer delete error:', error);
+            this.showError('Failed to delete customer: ' + error.message);
+        }
+    }
+
+    /**
+     * Handle select all checkbox
+     */
+    handleSelectAll(checked) {
+        const checkboxes = document.querySelectorAll('.customer-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = checked;
+        });
+        this.updateBulkActionButtons();
+    }
+
+    /**
+     * Handle bulk delete
+     */
+    async handleBulkDelete() {
+        const selectedIds = this.getSelectedCustomerIds();
+        if (selectedIds.length === 0) {
+            this.showError('Please select customers to delete');
+            return;
+        }
+
+        const confirmed = confirm(`Are you sure you want to delete ${selectedIds.length} selected customers?`);
+        if (!confirmed) return;
+
+        try {
+            await Promise.all(selectedIds.map(id => window.api.deleteCustomer(id)));
+            this.showSuccess(`${selectedIds.length} customers deleted successfully`);
+            await this.loadCustomers();
+        } catch (error) {
+            console.error('Bulk delete error:', error);
+            this.showError('Failed to delete customers: ' + error.message);
+        }
+    }
+
+    /**
+     * Get selected customer IDs
+     */
+    getSelectedCustomerIds() {
+        const checkboxes = document.querySelectorAll('.customer-checkbox:checked');
+        return Array.from(checkboxes).map(cb => parseInt(cb.value));
+    }
+
+    /**
+     * Update bulk action buttons
+     */
+    updateBulkActionButtons() {
+        const selectedCount = this.getSelectedCustomerIds().length;
+        const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+        const assignSalesRepBtn = document.getElementById('assignSalesRepBtn');
         
-        alert('Customer status has been updated successfully.');
-        
-        // Reload the customers table to reflect the change
-        loadCustomers();
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/customers/${customerId}`,
-            method: 'PUT',
-            data: JSON.stringify(updateData),
-            contentType: 'application/json',
-            success: function(response) {
-                // Update the status badge in the modal
-                let statusClass = '';
-                switch(newStatus) {
-                    case 'Active':
-                        statusClass = 'badge-success';
-                        break;
-                    case 'Pending':
-                        statusClass = 'badge-warning';
-                        break;
-                    case 'Inactive':
-                        statusClass = 'badge-secondary';
-                        break;
-                    case 'Hot Lead':
-                        statusClass = 'badge-danger';
-                        break;
-                    default:
-                        statusClass = 'badge-info';
-                }
-                $('#detail-status').text(newStatus).removeClass().addClass(`badge ${statusClass}`);
-                
-                alert('Customer status has been updated successfully.');
-                
-                // Reload the customers table to reflect the change
-                loadCustomers();
-            },
-            error: function(error) {
-                console.error('Error updating customer status:', error);
-                alert('Error updating customer status. Please try again later.');
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
+            bulkDeleteBtn.textContent = `Delete Selected (${selectedCount})`;
+        }
+
+        if (assignSalesRepBtn) {
+            assignSalesRepBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
+            assignSalesRepBtn.textContent = `Assign Sales Rep (${selectedCount})`;
+        }
+    }
+
+    /**
+     * Export customers
+     */
+    async exportCustomers() {
+        try {
+            const data = this.filteredCustomers.map(customer => ({
+                ID: customer.id,
+                Name: customer.name,
+                Email: customer.email,
+                Phone: customer.phone,
+                Company: customer.company || '',
+                Address: customer.address || '',
+                City: customer.city || '',
+                State: customer.state || '',
+                'ZIP Code': customer.zip_code || '',
+                Status: customer.status,
+                'Created Date': window.ConfigHelper.formatDate(customer.created_at)
+            }));
+
+            const csv = this.convertToCSV(data);
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `customers-${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            this.showSuccess('Customers exported successfully');
+        } catch (error) {
+            console.error('Export error:', error);
+            this.showError('Failed to export customers: ' + error.message);
+        }
+    }
+
+    /**
+     * Convert array to CSV
+     */
+    convertToCSV(data) {
+        if (data.length === 0) return '';
+
+        const headers = Object.keys(data[0]);
+        const csvRows = [headers.join(',')];
+
+        data.forEach(row => {
+            const values = headers.map(header => {
+                const value = row[header];
+                return `"${String(value).replace(/"/g, '""')}"`;
+            });
+            csvRows.push(values.join(','));
+        });
+
+        return csvRows.join('\n');
+    }
+
+    /**
+     * Validate form
+     */
+    validateForm() {
+        const form = document.getElementById('customerForm');
+        if (!form) return false;
+
+        let isValid = true;
+        const fields = ['customer_name', 'email', 'phone'];
+
+        fields.forEach(fieldName => {
+            const field = form[fieldName];
+            if (!this.validateField(field)) {
+                isValid = false;
             }
         });
-        */
-    }, 800);
+
+        return isValid;
+    }
+
+    /**
+     * Validate individual field
+     */
+    validateField(field) {
+        if (!field) return true;
+
+        const value = field.value.trim();
+        let isValid = true;
+        let message = '';
+
+        switch (field.name) {
+            case 'customer_name':
+                const nameValidation = window.ConfigHelper.validate('name', value);
+                isValid = nameValidation.isValid;
+                message = nameValidation.message;
+                break;
+            case 'email':
+                const emailValidation = window.ConfigHelper.validate('email', value);
+                isValid = emailValidation.isValid;
+                message = emailValidation.message;
+                break;
+            case 'phone':
+                const phoneValidation = window.ConfigHelper.validate('phone', value);
+                isValid = phoneValidation.isValid;
+                message = phoneValidation.message;
+                break;
+        }
+
+        this.showFieldValidation(field, isValid, message);
+        return isValid;
+    }
+
+    /**
+     * Show field validation state
+     */
+    showFieldValidation(field, isValid, message) {
+        field.classList.remove('is-valid', 'is-invalid');
+        field.classList.add(isValid ? 'is-valid' : 'is-invalid');
+
+        const feedback = field.parentNode.querySelector('.invalid-feedback');
+        if (feedback) {
+            feedback.textContent = message;
+        }
+    }
+
+    /**
+     * Clear field error
+     */
+    clearFieldError(field) {
+        field.classList.remove('is-invalid');
+        const feedback = field.parentNode.querySelector('.invalid-feedback');
+        if (feedback) {
+            feedback.textContent = '';
+        }
+    }
+
+    /**
+     * Clear all form errors
+     */
+    clearFormErrors() {
+        const form = document.getElementById('customerForm');
+        if (!form) return;
+
+        const fields = form.querySelectorAll('.is-invalid, .is-valid');
+        fields.forEach(field => {
+            field.classList.remove('is-invalid', 'is-valid');
+        });
+
+        const feedbacks = form.querySelectorAll('.invalid-feedback');
+        feedbacks.forEach(feedback => {
+            feedback.textContent = '';
+        });
+    }
+
+    /**
+     * Get sale status badge class
+     */
+    getSaleStatusBadgeClass(status) {
+        switch (status?.toLowerCase()) {
+            case 'completed':
+                return 'success';
+            case 'pending':
+                return 'warning';
+            case 'cancelled':
+                return 'danger';
+            case 'processing':
+                return 'info';
+            default:
+                return 'secondary';
+        }
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Show loading state
+     */
+    showLoading() {
+        const loadingElement = document.getElementById('customersLoading');
+        if (loadingElement) {
+            loadingElement.style.display = 'block';
+        }
+    }
+
+    /**
+     * Hide loading state
+     */
+    hideLoading() {
+        const loadingElement = document.getElementById('customersLoading');
+        if (loadingElement) {
+            loadingElement.style.display = 'none';
+        }
+    }
+
+    /**
+     * Show success message
+     */
+    showSuccess(message) {
+        this.showAlert(message, 'success');
+    }
+
+    /**
+     * Show error message
+     */
+    showError(message) {
+        this.showAlert(message, 'danger');
+    }
+
+    /**
+     * Show alert message
+     */
+    showAlert(message, type = 'info') {
+        const existingAlerts = document.querySelectorAll('.customers-alert');
+        existingAlerts.forEach(alert => alert.remove());
+
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show customers-alert`;
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        const customersSection = document.getElementById('customers');
+        if (customersSection) {
+            customersSection.insertBefore(alert, customersSection.firstChild);
+        }
+
+        setTimeout(() => {
+            if (alert.parentNode) {
+                alert.remove();
+            }
+        }, 5000);
+    }
 }
 
-// Save customer notes
-function saveCustomerNotes() {
-    const customerId = $('#customerDetailsModal').data('customer-id');
-    const salesRepId = $('#customerDetailsModal').data('sales-rep-id');
-    const notes = $('#customer-notes').val();
-    
-    if (!customerId || !salesRepId) {
-        alert('Missing required information to save notes.');
-        return;
-    }
-    
-    // Prepare the data to send to the API
-    const updateData = {
-        salesRepId: salesRepId,
-        notes: notes
-    };
-    
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        alert('Customer notes have been saved successfully.');
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/customers/${customerId}/notes`,
-            method: 'PUT',
-            data: JSON.stringify(updateData),
-            contentType: 'application/json',
-            success: function(response) {
-                alert('Customer notes have been saved successfully.');
-            },
-            error: function(error) {
-                console.error('Error saving customer notes:', error);
-                alert('Error saving customer notes. Please try again later.');
-            }
-        });
-        */
-    }, 500);
+// Create global instance
+const customersManager = new CustomersManager();
+
+// Export for different module systems
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = CustomersManager;
+} else if (typeof window !== 'undefined') {
+    window.CustomersManager = CustomersManager;
+    window.customersManager = customersManager;
 }

@@ -40,49 +40,82 @@ exports.handler = async (event) => {
         
         switch (method) {
             case 'GET':
-                if (pathParameters.productId) {
-                    // Get specific product with category info
-                    const [rows] = await connection.execute(`
-                        SELECT p.*, pc.name as category_name 
-                        FROM products p 
-                        LEFT JOIN product_categories pc ON p.category_id = pc.category_id 
-                        WHERE p.product_id = ?
-                    `, [pathParameters.productId]);
+                if (pathParameters.customerId) {
+                    // Get specific customer with sales rep assignment
+                    const [customerRows] = await connection.execute(`
+                        SELECT c.*, 
+                               csr.sales_rep_id as assigned_sales_rep_id,
+                               sr.name as assigned_sales_rep_name,
+                               sr.email as assigned_sales_rep_email
+                        FROM customers c 
+                        LEFT JOIN customer_sales_rep_assignments csr ON c.customer_id = csr.customer_id AND csr.is_active = TRUE
+                        LEFT JOIN sales_representatives sr ON csr.sales_rep_id = sr.sales_rep_id
+                        WHERE c.customer_id = ?
+                    `, [pathParameters.customerId]);
                     
-                    result = rows[0] || null;
-                    if (!result) {
+                    if (customerRows.length === 0) {
                         await connection.end();
                         return {
                             statusCode: 404,
                             headers,
-                            body: JSON.stringify({ message: 'Product not found' })
+                            body: JSON.stringify({ message: 'Customer not found' })
                         };
                     }
+                    
+                    const customer = customerRows[0];
+                    
+                    // Get customer's sales history
+                    const [salesRows] = await connection.execute(`
+                        SELECT s.sale_id, s.sale_date, s.status, s.total_amount, s.tax_amount,
+                               sr.name as sales_rep_name
+                        FROM sales s
+                        JOIN sales_representatives sr ON s.sales_rep_id = sr.sales_rep_id
+                        WHERE s.customer_id = ?
+                        ORDER BY s.sale_date DESC
+                        LIMIT 10
+                    `, [pathParameters.customerId]);
+                    
+                    customer.sales_history = salesRows;
+                    result = customer;
                 } else {
-                    // Get all products with optional filtering
+                    // Get all customers with optional filtering
                     let query = `
-                        SELECT p.*, pc.name as category_name 
-                        FROM products p 
-                        LEFT JOIN product_categories pc ON p.category_id = pc.category_id
+                        SELECT c.*, 
+                               csr.sales_rep_id as assigned_sales_rep_id,
+                               sr.name as assigned_sales_rep_name
+                        FROM customers c 
+                        LEFT JOIN customer_sales_rep_assignments csr ON c.customer_id = csr.customer_id AND csr.is_active = TRUE
+                        LEFT JOIN sales_representatives sr ON csr.sales_rep_id = sr.sales_rep_id
                     `;
                     let params = [];
                     let conditions = [];
                     
                     if (queryStringParameters.search) {
-                        conditions.push('(p.name LIKE ? OR p.description LIKE ?)');
-                        params.push(`%${queryStringParameters.search}%`, `%${queryStringParameters.search}%`);
+                        conditions.push('(c.name LIKE ? OR c.company LIKE ? OR c.email LIKE ?)');
+                        const searchTerm = `%${queryStringParameters.search}%`;
+                        params.push(searchTerm, searchTerm, searchTerm);
                     }
                     
-                    if (queryStringParameters.category) {
-                        conditions.push('pc.name = ?');
-                        params.push(queryStringParameters.category);
+                    if (queryStringParameters.city) {
+                        conditions.push('c.city = ?');
+                        params.push(queryStringParameters.city);
+                    }
+                    
+                    if (queryStringParameters.state) {
+                        conditions.push('c.state = ?');
+                        params.push(queryStringParameters.state);
+                    }
+                    
+                    if (queryStringParameters.salesRep) {
+                        conditions.push('sr.sales_rep_id = ?');
+                        params.push(queryStringParameters.salesRep);
                     }
                     
                     if (conditions.length > 0) {
                         query += ' WHERE ' + conditions.join(' AND ');
                     }
                     
-                    query += ' ORDER BY p.name';
+                    query += ' ORDER BY c.name';
                     
                     // Add pagination
                     const limit = parseInt(queryStringParameters.limit) || 50;
@@ -92,20 +125,21 @@ exports.handler = async (event) => {
                     
                     const [rows] = await connection.execute(query, params);
                     
-                    // Get total count for pagination
-                    let countQuery = 'SELECT COUNT(*) as total FROM products p LEFT JOIN product_categories pc ON p.category_id = pc.category_id';
+                    // Get total count
+                    let countQuery = 'SELECT COUNT(*) as total FROM customers c';
                     let countParams = [];
-                    
                     if (conditions.length > 0) {
+                        countQuery += ' LEFT JOIN customer_sales_rep_assignments csr ON c.customer_id = csr.customer_id AND csr.is_active = TRUE';
+                        countQuery += ' LEFT JOIN sales_representatives sr ON csr.sales_rep_id = sr.sales_rep_id';
                         countQuery += ' WHERE ' + conditions.join(' AND ');
-                        countParams = params.slice(0, -2); // Remove limit and offset
+                        countParams = params.slice(0, -2);
                     }
                     
                     const [countRows] = await connection.execute(countQuery, countParams);
                     const total = countRows[0].total;
                     
                     result = { 
-                        products: rows, 
+                        customers: rows, 
                         count: rows.length,
                         total: total,
                         hasMore: offset + limit < total
@@ -114,60 +148,60 @@ exports.handler = async (event) => {
                 break;
                 
             case 'POST':
-                // Create new product
-                const { product_id, name, description, price, stock_quantity, category_id, image_url, specifications, supplier } = body;
+                // Create new customer
+                const { customer_id, name, email, phone, address, city, state, zip_code, country, company, credit_limit } = body;
                 
-                if (!product_id || !name || !price || stock_quantity === undefined) {
+                if (!customer_id || !name) {
                     await connection.end();
                     return {
                         statusCode: 400,
                         headers,
                         body: JSON.stringify({ 
-                            message: 'Missing required fields: product_id, name, price, stock_quantity' 
+                            message: 'Missing required fields: customer_id, name' 
                         })
                     };
                 }
                 
-                // Check if product already exists
-                const [existingProducts] = await connection.execute(
-                    'SELECT product_id FROM products WHERE product_id = ?',
-                    [product_id]
+                // Check if customer already exists
+                const [existingCustomers] = await connection.execute(
+                    'SELECT customer_id FROM customers WHERE customer_id = ?',
+                    [customer_id]
                 );
                 
-                if (existingProducts.length > 0) {
+                if (existingCustomers.length > 0) {
                     await connection.end();
                     return {
                         statusCode: 409,
                         headers,
-                        body: JSON.stringify({ message: 'Product with this ID already exists' })
+                        body: JSON.stringify({ message: 'Customer with this ID already exists' })
                     };
                 }
                 
                 await connection.execute(`
-                    INSERT INTO products 
-                    (product_id, name, description, price, stock_quantity, category_id, image_url, specifications, supplier) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [product_id, name, description || '', price, stock_quantity, category_id || 1, 
-                    image_url || '', specifications || '', supplier || '']);
+                    INSERT INTO customers 
+                    (customer_id, name, email, phone, address, city, state, zip_code, country, company, credit_limit) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [customer_id, name, email || '', phone || '', address || '', city || '', 
+                    state || '', zip_code || '', country || 'USA', company || '', credit_limit || 0]);
                 
-                result = { message: 'Product created successfully', product_id };
+                result = { message: 'Customer created successfully', customer_id };
                 break;
                 
             case 'PUT':
-                // Update product
-                if (!pathParameters.productId) {
+                // Update customer
+                if (!pathParameters.customerId) {
                     await connection.end();
                     return {
                         statusCode: 400,
                         headers,
-                        body: JSON.stringify({ message: 'Product ID required' })
+                        body: JSON.stringify({ message: 'Customer ID required' })
                     };
                 }
                 
                 const updateFields = [];
                 const updateValues = [];
                 
-                const validFields = ['name', 'description', 'price', 'stock_quantity', 'category_id', 'image_url', 'specifications', 'supplier'];
+                const validFields = ['name', 'email', 'phone', 'address', 'city', 'state', 'zip_code', 'country', 'company', 'credit_limit'];
                 Object.entries(body).forEach(([key, value]) => {
                     if (validFields.includes(key)) {
                         updateFields.push(`${key} = ?`);
@@ -184,10 +218,10 @@ exports.handler = async (event) => {
                     };
                 }
                 
-                updateValues.push(pathParameters.productId);
+                updateValues.push(pathParameters.customerId);
                 
                 const [updateResult] = await connection.execute(
-                    `UPDATE products SET ${updateFields.join(', ')} WHERE product_id = ?`,
+                    `UPDATE customers SET ${updateFields.join(', ')} WHERE customer_id = ?`,
                     updateValues
                 );
                 
@@ -196,28 +230,28 @@ exports.handler = async (event) => {
                     return {
                         statusCode: 404,
                         headers,
-                        body: JSON.stringify({ message: 'Product not found' })
+                        body: JSON.stringify({ message: 'Customer not found' })
                     };
                 }
                 
-                result = { message: 'Product updated successfully' };
+                result = { message: 'Customer updated successfully' };
                 break;
                 
             case 'DELETE':
-                // Delete product
-                if (!pathParameters.productId) {
+                // Delete customer
+                if (!pathParameters.customerId) {
                     await connection.end();
                     return {
                         statusCode: 400,
                         headers,
-                        body: JSON.stringify({ message: 'Product ID required' })
+                        body: JSON.stringify({ message: 'Customer ID required' })
                     };
                 }
                 
-                // Check if product exists in any sales
+                // Check if customer has sales
                 const [salesCheck] = await connection.execute(
-                    'SELECT COUNT(*) as count FROM sale_items WHERE product_id = ?',
-                    [pathParameters.productId]
+                    'SELECT COUNT(*) as count FROM sales WHERE customer_id = ?',
+                    [pathParameters.customerId]
                 );
                 
                 if (salesCheck[0].count > 0) {
@@ -226,14 +260,14 @@ exports.handler = async (event) => {
                         statusCode: 409,
                         headers,
                         body: JSON.stringify({ 
-                            message: 'Cannot delete product that has sales records' 
+                            message: 'Cannot delete customer that has sales records' 
                         })
                     };
                 }
                 
                 const [deleteResult] = await connection.execute(
-                    'DELETE FROM products WHERE product_id = ?',
-                    [pathParameters.productId]
+                    'DELETE FROM customers WHERE customer_id = ?',
+                    [pathParameters.customerId]
                 );
                 
                 if (deleteResult.affectedRows === 0) {
@@ -241,11 +275,11 @@ exports.handler = async (event) => {
                     return {
                         statusCode: 404,
                         headers,
-                        body: JSON.stringify({ message: 'Product not found' })
+                        body: JSON.stringify({ message: 'Customer not found' })
                     };
                 }
                 
-                result = { message: 'Product deleted successfully' };
+                result = { message: 'Customer deleted successfully' };
                 break;
                 
             default:

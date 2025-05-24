@@ -1,408 +1,614 @@
-/* Sales dashboard functionality for SalePoint application */
+// SalePoint Solution - Dashboard Module
+class DashboardManager {
+    constructor() {
+        this.charts = {};
+        this.refreshInterval = null;
+        this.refreshRate = 30000; // 30 seconds
+        this.isLoading = false;
+    }
 
-// API Endpoint
-const API_URL = API_CONFIG.baseUrl;
+    /**
+     * Initialize dashboard
+     */
+    async init() {
+        await this.loadDashboardData();
+        this.setupEventListeners();
+        this.startAutoRefresh();
+    }
 
-// Chart objects
-let salesChart, productsChart, salesRepChart, categoryChart;
+    /**
+     * Setup event listeners
+     */
+    setupEventListeners() {
+        // Refresh button
+        document.getElementById('refreshDashboard')?.addEventListener('click', () => {
+            this.loadDashboardData();
+        });
 
-// Initialize on page load
-$(document).ready(function() {
-    // Load dashboard data
-    loadDashboardData();
-    
-    // Set up event listeners
-    $('#refresh-dashboard-btn').click(loadDashboardData);
-    $('#time-range, #sales-rep-filter, #product-category-filter').change(function() {
-        // Only reload when user clicks refresh button
-        // This prevents excessive API calls
-    });
-});
+        // Date range filter
+        document.getElementById('dashboardDateRange')?.addEventListener('change', (e) => {
+            this.loadDashboardData({ dateRange: e.target.value });
+        });
 
-// Load dashboard data from API
-function loadDashboardData() {
-    const timeRange = $('#time-range').val();
-    const salesRepId = $('#sales-rep-filter').val();
-    const productCategory = $('#product-category-filter').val();
-    
-    // Show loading spinners
-    $('#total-sales-count').html('<div class="spinner-border spinner-border-sm text-white" role="status"><span class="sr-only">Loading...</span></div>');
-    $('#total-revenue').html('<div class="spinner-border spinner-border-sm text-white" role="status"><span class="sr-only">Loading...</span></div>');
-    $('#avg-sale-value').html('<div class="spinner-border spinner-border-sm text-white" role="status"><span class="sr-only">Loading...</span></div>');
-    $('#pending-sales').html('<div class="spinner-border spinner-border-sm text-white" role="status"><span class="sr-only">Loading...</span></div>');
-    
-    // In a real implementation, these would be API calls
-    // For demonstration, using setTimeout to simulate API delay
-    
-    // Load summary data
-    setTimeout(() => {
-        const summaryData = {
-            totalSales: 142,
-            totalRevenue: 52638.75,
-            avgSaleValue: 370.70,
-            pendingSales: 23
-        };
-        
-        $('#total-sales-count').text(summaryData.totalSales);
-        $('#total-revenue').text(formatCurrency(summaryData.totalRevenue));
-        $('#avg-sale-value').text(formatCurrency(summaryData.avgSaleValue));
-        $('#pending-sales').text(summaryData.pendingSales);
-    }, 800);
-    
-    // Load chart data
-    setTimeout(() => {
-        // Sample data for charts
-        const salesTimeData = {
-            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-            sales: [12, 19, 15, 25, 32, 39],
-            revenue: [4200, 6500, 5100, 9200, 11800, 15800]
-        };
-        
-        const topProductsData = {
-            products: ['Laptop Computer', 'Smart TV 55"', 'Wireless Headphones', 'Office Chair', 'Coffee Maker'],
-            quantities: [28, 22, 19, 15, 12]
-        };
-        
-        const salesRepData = {
-            reps: ['Emily Johnson', 'David Lee', 'Maria Garcia', 'James Wilson', 'Linda Chen'],
-            sales: [45, 32, 28, 21, 16],
-            revenue: [18500, 12800, 10500, 7300, 3500]
-        };
-        
-        const categoryData = {
-            categories: ['Electronics', 'Furniture', 'Appliances', 'Clothing', 'Other'],
-            sales: [72, 35, 20, 10, 5]
-        };
-        
-        // Render charts
-        renderSalesChart(salesTimeData);
-        renderProductsChart(topProductsData);
-        renderSalesRepChart(salesRepData);
-        renderCategoryChart(categoryData);
-    }, 1000);
-    
-    // Load recent sales
-    setTimeout(() => {
-        const recentSales = [
-            { saleId: 'SALE-125478', date: '2025-05-19T14:35:00', customer: 'John Smith', salesRep: 'Emily Johnson', amount: 1899.98, status: 'Completed' },
-            { saleId: 'SALE-125477', date: '2025-05-19T11:22:00', customer: 'Jane Doe', salesRep: 'Maria Garcia', amount: 599.99, status: 'Completed' },
-            { saleId: 'SALE-125476', date: '2025-05-18T16:45:00', customer: 'Bob Johnson', salesRep: 'James Wilson', amount: 289.97, status: 'Pending' },
-            { saleId: 'SALE-125475', date: '2025-05-18T10:15:00', customer: 'Sarah Williams', salesRep: 'David Lee', amount: 1349.98, status: 'Completed' },
-            { saleId: 'SALE-125474', date: '2025-05-17T15:30:00', customer: 'Michael Brown', salesRep: 'Linda Chen', amount: 749.96, status: 'Pending' }
-        ];
-        
-        let salesHtml = '';
-        recentSales.forEach(sale => {
-            let statusClass = '';
-            switch(sale.status) {
-                case 'Completed':
-                    statusClass = 'badge-success';
-                    break;
-                case 'Pending':
-                    statusClass = 'badge-warning';
-                    break;
-                case 'Cancelled':
-                    statusClass = 'badge-danger';
-                    break;
-                default:
-                    statusClass = 'badge-secondary';
+        // Auto refresh toggle
+        document.getElementById('autoRefresh')?.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                this.startAutoRefresh();
+            } else {
+                this.stopAutoRefresh();
             }
+        });
+    }
+
+    /**
+     * Load dashboard data
+     */
+    async loadDashboardData(params = {}) {
+        if (this.isLoading) return;
+        
+        this.isLoading = true;
+        this.showLoading();
+
+        try {
+            const data = await window.api.getDashboardData(params);
             
-            salesHtml += `
-                <tr>
-                    <td>${sale.saleId}</td>
-                    <td>${formatDate(sale.date)}</td>
-                    <td>${sale.customer}</td>
-                    <td>${sale.salesRep}</td>
-                    <td>${formatCurrency(sale.amount)}</td>
-                    <td><span class="badge ${statusClass}">${sale.status}</span></td>
-                </tr>
-            `;
-        });
-        
-        $('#recent-sales-table').html(salesHtml);
-    }, 900);
-    
-    // Load low inventory products
-    setTimeout(() => {
-        const lowInventoryProducts = [
-            { productId: 'PROD004', name: 'Smart TV 55"', category: 'Electronics', stock: 8, reorderLevel: 10, status: 'Low' },
-            { productId: 'PROD007', name: 'Bluetooth Speaker', category: 'Electronics', stock: 5, reorderLevel: 15, status: 'Critical' },
-            { productId: 'PROD012', name: 'Desk Organizer', category: 'Office Supplies', stock: 7, reorderLevel: 10, status: 'Low' },
-            { productId: 'PROD015', name: 'Gaming Mouse', category: 'Electronics', stock: 3, reorderLevel: 12, status: 'Critical' },
-            { productId: 'PROD022', name: 'Water Kettle', category: 'Appliances', stock: 9, reorderLevel: 10, status: 'Low' }
-        ];
-        
-        let inventoryHtml = '';
-        lowInventoryProducts.forEach(product => {
-            let statusClass = '';
-            switch(product.status) {
-                case 'Low':
-                    statusClass = 'badge-warning';
-                    break;
-                case 'Critical':
-                    statusClass = 'badge-danger';
-                    break;
-                default:
-                    statusClass = 'badge-secondary';
-            }
-            
-            inventoryHtml += `
-                <tr>
-                    <td>${product.productId}</td>
-                    <td>${product.name}</td>
-                    <td>${product.category}</td>
-                    <td>${product.stock}</td>
-                    <td>${product.reorderLevel}</td>
-                    <td><span class="badge ${statusClass}">${product.status}</span></td>
-                </tr>
-            `;
-        });
-        
-        $('#low-inventory-table').html(inventoryHtml);
-    }, 1100);
-    
-    // Load sales rep filter options
-    setTimeout(() => {
-        const salesReps = [
-            { id: 'SR001', name: 'Emily Johnson' },
-            { id: 'SR002', name: 'David Lee' },
-            { id: 'SR003', name: 'Maria Garcia' },
-            { id: 'SR004', name: 'James Wilson' },
-            { id: 'SR005', name: 'Linda Chen' }
-        ];
-        
-        let salesRepOptions = '<option value="">All Sales Reps</option>';
-        salesReps.forEach(rep => {
-            salesRepOptions += `<option value="${rep.id}">${rep.name}</option>`;
-        });
-        
-        $('#sales-rep-filter').html(salesRepOptions);
-    }, 500);
-}
+            await Promise.all([
+                this.updateStatCards(data.stats),
+                this.updateSalesChart(data.salesChart),
+                this.updateProductChart(data.productChart),
+                this.updateSalesRepChart(data.salesRepChart),
+                this.updateRecentSales(data.recentSales),
+                this.updateTopProducts(data.topProducts),
+                this.updateTopSalesReps(data.topSalesReps)
+            ]);
 
-// Render sales over time chart
-function renderSalesChart(data) {
-    const ctx = document.getElementById('sales-chart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (salesChart) {
-        salesChart.destroy();
-    }
-    
-    salesChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: data.labels,
-            datasets: [
-                {
-                    label: 'Sales Count',
-                    data: data.sales,
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 2,
-                    tension: 0.3,
-                    yAxisID: 'y'
-                },
-                {
-                    label: 'Revenue',
-                    data: data.revenue,
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 2,
-                    tension: 0.3,
-                    yAxisID: 'y1'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    title: {
-                        display: true,
-                        text: 'Sales Count'
-                    }
-                },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    title: {
-                        display: true,
-                        text: 'Revenue ($)'
-                    },
-                    grid: {
-                        drawOnChartArea: false
-                    }
-                }
-            }
+            this.showSuccess('Dashboard updated successfully');
+        } catch (error) {
+            console.error('Dashboard load error:', error);
+            this.showError('Failed to load dashboard data: ' + error.message);
+        } finally {
+            this.isLoading = false;
+            this.hideLoading();
         }
-    });
-}
-
-// Render top selling products chart
-function renderProductsChart(data) {
-    const ctx = document.getElementById('products-chart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (productsChart) {
-        productsChart.destroy();
     }
-    
-    productsChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: data.products,
-            datasets: [{
-                label: 'Units Sold',
-                data: data.quantities,
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.7)',
-                    'rgba(54, 162, 235, 0.7)',
-                    'rgba(255, 206, 86, 0.7)',
-                    'rgba(75, 192, 192, 0.7)',
-                    'rgba(153, 102, 255, 0.7)'
-                ],
-                borderColor: [
-                    'rgba(255, 99, 132, 1)',
-                    'rgba(54, 162, 235, 1)',
-                    'rgba(255, 206, 86, 1)',
-                    'rgba(75, 192, 192, 1)',
-                    'rgba(153, 102, 255, 1)'
-                ],
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Units Sold'
-                    }
-                }
-            }
+
+    /**
+     * Update statistics cards
+     */
+    updateStatCards(stats) {
+        if (!stats) return;
+
+        // Total Sales
+        const totalSalesElement = document.getElementById('totalSales');
+        if (totalSalesElement) {
+            totalSalesElement.textContent = window.ConfigHelper.formatCurrency(stats.totalSales || 0);
         }
-    });
-}
 
-// Render sales rep performance chart
-function renderSalesRepChart(data) {
-    const ctx = document.getElementById('sales-rep-chart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (salesRepChart) {
-        salesRepChart.destroy();
+        // Total Customers
+        const totalCustomersElement = document.getElementById('totalCustomers');
+        if (totalCustomersElement) {
+            totalCustomersElement.textContent = (stats.totalCustomers || 0).toLocaleString();
+        }
+
+        // Total Products
+        const totalProductsElement = document.getElementById('totalProducts');
+        if (totalProductsElement) {
+            totalProductsElement.textContent = (stats.totalProducts || 0).toLocaleString();
+        }
+
+        // Total Sales Reps
+        const totalSalesRepsElement = document.getElementById('totalSalesReps');
+        if (totalSalesRepsElement) {
+            totalSalesRepsElement.textContent = (stats.totalSalesReps || 0).toLocaleString();
+        }
+
+        // Average Sale Amount
+        const avgSaleElement = document.getElementById('avgSaleAmount');
+        if (avgSaleElement) {
+            avgSaleElement.textContent = window.ConfigHelper.formatCurrency(stats.averageSaleAmount || 0);
+        }
+
+        // Sales This Month
+        const salesThisMonthElement = document.getElementById('salesThisMonth');
+        if (salesThisMonthElement) {
+            salesThisMonthElement.textContent = window.ConfigHelper.formatCurrency(stats.salesThisMonth || 0);
+        }
+
+        // Update trend indicators
+        this.updateTrendIndicators(stats.trends);
     }
-    
-    salesRepChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: data.reps,
-            datasets: [{
-                label: 'Sales Count',
-                data: data.sales,
-                backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1,
-                yAxisID: 'y'
+
+    /**
+     * Update trend indicators
+     */
+    updateTrendIndicators(trends) {
+        if (!trends) return;
+
+        Object.keys(trends).forEach(key => {
+            const indicator = document.getElementById(`${key}Trend`);
+            if (indicator) {
+                const trend = trends[key];
+                const isPositive = trend.change >= 0;
+                
+                indicator.innerHTML = `
+                    <i class="fas fa-arrow-${isPositive ? 'up' : 'down'} text-${isPositive ? 'success' : 'danger'}"></i>
+                    <span class="text-${isPositive ? 'success' : 'danger'}">${Math.abs(trend.change).toFixed(1)}%</span>
+                `;
+            }
+        });
+    }
+
+    /**
+     * Update sales chart
+     */
+    async updateSalesChart(salesData) {
+        if (!salesData) return;
+
+        const ctx = document.getElementById('salesChart');
+        if (!ctx) return;
+
+        // Destroy existing chart
+        if (this.charts.sales) {
+            this.charts.sales.destroy();
+        }
+
+        this.charts.sales = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: salesData.labels || [],
+                datasets: [{
+                    label: 'Sales Amount',
+                    data: salesData.values || [],
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4
+                }]
             },
-            {
-                label: 'Revenue ($)',
-                data: data.revenue,
-                backgroundColor: 'rgba(255, 159, 64, 0.7)',
-                borderColor: 'rgba(255, 159, 64, 1)',
-                borderWidth: 1,
-                yAxisID: 'y1'
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    beginAtZero: true,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    },
                     title: {
                         display: true,
-                        text: 'Sales Count'
+                        text: 'Sales Trend',
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        }
                     }
                 },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Revenue ($)'
-                    },
-                    grid: {
-                        drawOnChartArea: false
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return window.ConfigHelper.formatCurrency(value);
+                            }
+                        }
                     }
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
                 }
             }
-        }
-    });
-}
-
-// Render category distribution chart
-function renderCategoryChart(data) {
-    const ctx = document.getElementById('category-chart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (categoryChart) {
-        categoryChart.destroy();
+        });
     }
-    
-    categoryChart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-            labels: data.categories,
-            datasets: [{
-                data: data.sales,
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.7)',
-                    'rgba(54, 162, 235, 0.7)',
-                    'rgba(255, 206, 86, 0.7)',
-                    'rgba(75, 192, 192, 0.7)',
-                    'rgba(153, 102, 255, 0.7)'
-                ],
-                borderColor: [
-                    'rgba(255, 99, 132, 1)',
-                    'rgba(54, 162, 235, 1)',
-                    'rgba(255, 206, 86, 1)',
-                    'rgba(75, 192, 192, 1)',
-                    'rgba(153, 102, 255, 1)'
-                ],
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    position: 'right'
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            const label = context.label || '';
-                            const value = context.raw || 0;
-                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                            const percentage = Math.round((value / total) * 100);
-                            return `${label}: ${value} (${percentage}%)`;
+
+    /**
+     * Update products chart
+     */
+    async updateProductChart(productData) {
+        if (!productData) return;
+
+        const ctx = document.getElementById('productChart');
+        if (!ctx) return;
+
+        // Destroy existing chart
+        if (this.charts.products) {
+            this.charts.products.destroy();
+        }
+
+        this.charts.products = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: productData.labels || [],
+                datasets: [{
+                    data: productData.values || [],
+                    backgroundColor: [
+                        '#007bff',
+                        '#28a745',
+                        '#ffc107',
+                        '#dc3545',
+                        '#17a2b8',
+                        '#6f42c1',
+                        '#fd7e14',
+                        '#20c997'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top Products by Sales',
+                        font: {
+                            size: 16,
+                            weight: 'bold'
                         }
                     }
                 }
             }
+        });
+    }
+
+    /**
+     * Update sales representatives chart
+     */
+    async updateSalesRepChart(salesRepData) {
+        if (!salesRepData) return;
+
+        const ctx = document.getElementById('salesRepChart');
+        if (!ctx) return;
+
+        // Destroy existing chart
+        if (this.charts.salesReps) {
+            this.charts.salesReps.destroy();
         }
-    });
+
+        this.charts.salesReps = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: salesRepData.labels || [],
+                datasets: [{
+                    label: 'Sales Amount',
+                    data: salesRepData.values || [],
+                    backgroundColor: 'rgba(0, 123, 255, 0.8)',
+                    borderColor: '#007bff',
+                    borderWidth: 2,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top Sales Representatives',
+                        font: {
+                            size: 16,
+                            weight: 'bold'
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return window.ConfigHelper.formatCurrency(value);
+                            }
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            maxRotation: 45
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Update recent sales table
+     */
+    updateRecentSales(recentSales) {
+        if (!recentSales) return;
+
+        const tbody = document.querySelector('#recentSalesTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        recentSales.forEach(sale => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>#${sale.id}</td>
+                <td>${sale.customer_name}</td>
+                <td>${sale.sales_rep_name}</td>
+                <td>${window.ConfigHelper.formatCurrency(sale.total_amount)}</td>
+                <td>${window.ConfigHelper.formatDate(sale.sale_date)}</td>
+                <td>
+                    <span class="badge badge-${this.getStatusBadgeClass(sale.status)}">
+                        ${sale.status}
+                    </span>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    /**
+     * Update top products table
+     */
+    updateTopProducts(topProducts) {
+        if (!topProducts) return;
+
+        const tbody = document.querySelector('#topProductsTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        topProducts.forEach((product, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td>${product.name}</td>
+                <td>${product.category}</td>
+                <td>${product.units_sold}</td>
+                <td>${window.ConfigHelper.formatCurrency(product.revenue)}</td>
+                <td>${window.ConfigHelper.formatCurrency(product.price)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    /**
+     * Update top sales reps table
+     */
+    updateTopSalesReps(topSalesReps) {
+        if (!topSalesReps) return;
+
+        const tbody = document.querySelector('#topSalesRepsTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        topSalesReps.forEach((rep, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td>${rep.name}</td>
+                <td>${rep.email}</td>
+                <td>${rep.total_sales}</td>
+                <td>${window.ConfigHelper.formatCurrency(rep.revenue)}</td>
+                <td>${rep.customers_count}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    /**
+     * Get status badge class
+     */
+    getStatusBadgeClass(status) {
+        switch (status?.toLowerCase()) {
+            case 'completed':
+                return 'success';
+            case 'pending':
+                return 'warning';
+            case 'cancelled':
+                return 'danger';
+            case 'processing':
+                return 'info';
+            default:
+                return 'secondary';
+        }
+    }
+
+    /**
+     * Start auto refresh
+     */
+    startAutoRefresh() {
+        this.stopAutoRefresh(); // Clear any existing interval
+        
+        this.refreshInterval = setInterval(() => {
+            if (!this.isLoading) {
+                this.loadDashboardData();
+            }
+        }, this.refreshRate);
+
+        // Update refresh indicator
+        const indicator = document.getElementById('refreshIndicator');
+        if (indicator) {
+            indicator.classList.add('text-success');
+            indicator.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Auto-refresh enabled';
+        }
+    }
+
+    /**
+     * Stop auto refresh
+     */
+    stopAutoRefresh() {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
+
+        // Update refresh indicator
+        const indicator = document.getElementById('refreshIndicator');
+        if (indicator) {
+            indicator.classList.remove('text-success');
+            indicator.innerHTML = '<i class="fas fa-pause"></i> Auto-refresh disabled';
+        }
+    }
+
+    /**
+     * Show loading state
+     */
+    showLoading() {
+        const loadingElement = document.getElementById('dashboardLoading');
+        if (loadingElement) {
+            loadingElement.style.display = 'block';
+        }
+
+        const refreshBtn = document.getElementById('refreshDashboard');
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+        }
+    }
+
+    /**
+     * Hide loading state
+     */
+    hideLoading() {
+        const loadingElement = document.getElementById('dashboardLoading');
+        if (loadingElement) {
+            loadingElement.style.display = 'none';
+        }
+
+        const refreshBtn = document.getElementById('refreshDashboard');
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+        }
+    }
+
+    /**
+     * Show success message
+     */
+    showSuccess(message) {
+        this.showAlert(message, 'success');
+    }
+
+    /**
+     * Show error message
+     */
+    showError(message) {
+        this.showAlert(message, 'danger');
+    }
+
+    /**
+     * Show alert message
+     */
+    showAlert(message, type = 'info') {
+        // Remove existing alerts
+        const existingAlerts = document.querySelectorAll('.dashboard-alert');
+        existingAlerts.forEach(alert => alert.remove());
+
+        // Create new alert
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show dashboard-alert`;
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        // Insert at top of dashboard
+        const dashboard = document.getElementById('dashboard');
+        if (dashboard) {
+            dashboard.insertBefore(alert, dashboard.firstChild);
+        }
+
+        // Auto dismiss after 5 seconds
+        setTimeout(() => {
+            if (alert.parentNode) {
+                alert.remove();
+            }
+        }, 5000);
+    }
+
+    /**
+     * Export dashboard data
+     */
+    async exportData(format = 'json') {
+        try {
+            const data = await window.api.getDashboardData();
+            
+            let content, filename, mimeType;
+
+            switch (format) {
+                case 'json':
+                    content = JSON.stringify(data, null, 2);
+                    filename = `dashboard-data-${new Date().toISOString().split('T')[0]}.json`;
+                    mimeType = 'application/json';
+                    break;
+                case 'csv':
+                    content = this.convertToCSV(data);
+                    filename = `dashboard-data-${new Date().toISOString().split('T')[0]}.csv`;
+                    mimeType = 'text/csv';
+                    break;
+                default:
+                    throw new Error('Unsupported export format');
+            }
+
+            // Create and download file
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            this.showSuccess(`Data exported successfully as ${filename}`);
+        } catch (error) {
+            console.error('Export error:', error);
+            this.showError('Failed to export data: ' + error.message);
+        }
+    }
+
+    /**
+     * Convert data to CSV format
+     */
+    convertToCSV(data) {
+        // Simple CSV conversion for stats
+        const stats = data.stats || {};
+        const rows = [
+            ['Metric', 'Value'],
+            ['Total Sales', stats.totalSales || 0],
+            ['Total Customers', stats.totalCustomers || 0],
+            ['Total Products', stats.totalProducts || 0],
+            ['Total Sales Reps', stats.totalSalesReps || 0],
+            ['Average Sale Amount', stats.averageSaleAmount || 0],
+            ['Sales This Month', stats.salesThisMonth || 0]
+        ];
+
+        return rows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    }
+
+    /**
+     * Cleanup dashboard
+     */
+    destroy() {
+        this.stopAutoRefresh();
+        
+        // Destroy all charts
+        Object.values(this.charts).forEach(chart => {
+            if (chart) {
+                chart.destroy();
+            }
+        });
+        
+        this.charts = {};
+    }
+}
+
+// Export for different module systems
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = DashboardManager;
+} else if (typeof window !== 'undefined') {
+    window.DashboardManager = DashboardManager;
 }

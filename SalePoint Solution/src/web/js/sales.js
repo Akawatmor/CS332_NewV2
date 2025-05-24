@@ -1,949 +1,1290 @@
-/**
- * SalePoint Solution - Sales Management JavaScript
- * 
- * This file handles the functionality for the sales.html page, including:
- * - Creating new sales
- * - Managing the sales cart (adding, removing, updating products)
- * - Searching and displaying product information
- * - Submitting sales to the backend
- * - Viewing and managing sales history
- * - Updating sale status
- */
+// SalePoint Solution - Sales Module
+class SalesManager {
+    constructor() {
+        this.sales = [];
+        this.filteredSales = [];
+        this.customers = [];
+        this.products = [];
+        this.salesReps = [];
+        this.currentPage = 1;
+        this.pageSize = 10;
+        this.totalPages = 0;
+        this.sortColumn = 'id';
+        this.sortDirection = 'desc';
+        this.searchTerm = '';
+        this.statusFilter = '';
+        this.dateRangeFilter = '';
+        this.salesRepFilter = '';
+        this.isLoading = false;
+        this.saleItems = [];
+    }
 
-// API endpoint base URL - to be replaced with actual API Gateway URL in production
-// API Base URL - Get from main.js config
-const API_BASE_URL = API_CONFIG ? API_CONFIG.baseUrl : 'https://your-api-gateway-id.execute-api.us-east-1.amazonaws.com/prod';
+    /**
+     * Initialize sales module
+     */
+    async init() {
+        await Promise.all([
+            this.loadSales(),
+            this.loadCustomers(),
+            this.loadProducts(),
+            this.loadSalesReps()
+        ]);
+        this.setupEventListeners();
+        this.setupValidation();
+    }
 
-// Store for the current sale being created
-let currentSale = {
-    customer: null,
-    salesRep: null,
-    products: [],
-    notes: ''
-};
+    /**
+     * Setup event listeners
+     */
+    setupEventListeners() {
+        // Add Sale button
+        document.getElementById('addSaleBtn')?.addEventListener('click', () => {
+            this.showSaleModal();
+        });
 
-// Cache for customers and sales reps data
-let customersCache = [];
-let salesRepsCache = [];
+        // Search input
+        document.getElementById('saleSearch')?.addEventListener('input', (e) => {
+            this.searchTerm = e.target.value;
+            this.applyFilters();
+        });
 
-// Cache for products search results
-let productSearchResults = [];
+        // Status filter
+        document.getElementById('statusFilter')?.addEventListener('change', (e) => {
+            this.statusFilter = e.target.value;
+            this.applyFilters();
+        });
 
-// Document ready function
-$(document).ready(function() {
-    // Initialize the page
-    initializePage();
-    
-    // Set up event listeners
-    setupEventListeners();
-    
-    // Load initial data
-    loadSalesHistory();
-    loadCustomersAndSalesReps();
-});
+        // Date range filter
+        document.getElementById('dateRangeFilter')?.addEventListener('change', (e) => {
+            this.dateRangeFilter = e.target.value;
+            this.applyFilters();
+        });
 
-/**
- * Initialize the page and set up UI components
- */
-function initializePage() {
-    // Show loading spinner (will be hidden once data is loaded)
-    $('#sales-table-body').html(`
-        <tr>
-            <td colspan="7" class="text-center">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="sr-only">Loading...</span>
-                </div>
-            </td>
-        </tr>
-    `);
-    
-    // Initialize tooltips and popovers if used
-    $('[data-toggle="tooltip"]').tooltip();
-    $('[data-toggle="popover"]').popover();
-}
+        // Sales rep filter
+        document.getElementById('salesRepFilter')?.addEventListener('change', (e) => {
+            this.salesRepFilter = e.target.value;
+            this.applyFilters();
+        });
 
-/**
- * Set up all event listeners for the page
- */
-function setupEventListeners() {
-    // Customer and Sales Rep selection change events
-    $('#customer-select').on('change', updateSaleSummary);
-    $('#sales-rep-select').on('change', updateSaleSummary);
-    
-    // Product search
-    $('#product-search-btn').on('click', searchProducts);
-    $('#product-search').on('keypress', function(e) {
-        if (e.which === 13) { // Enter key
-            searchProducts();
+        // Page size selector
+        document.getElementById('pageSize')?.addEventListener('change', (e) => {
+            this.pageSize = parseInt(e.target.value);
+            this.currentPage = 1;
+            this.renderTable();
+            this.renderPagination();
+        });
+
+        // Refresh button
+        document.getElementById('refreshSales')?.addEventListener('click', () => {
+            this.loadSales();
+        });
+
+        // Bulk delete button
+        document.getElementById('bulkDeleteBtn')?.addEventListener('click', () => {
+            this.handleBulkDelete();
+        });
+
+        // Select all checkbox
+        document.getElementById('selectAllSales')?.addEventListener('change', (e) => {
+            this.handleSelectAll(e.target.checked);
+        });
+
+        // Sale form submission
+        document.getElementById('saleForm')?.addEventListener('submit', (e) => {
             e.preventDefault();
+            this.handleSaleSubmit();
+        });
+
+        // Add item button
+        document.getElementById('addItemBtn')?.addEventListener('click', () => {
+            this.addSaleItem();
+        });
+
+        // Export button
+        document.getElementById('exportSales')?.addEventListener('click', () => {
+            this.exportSales();
+        });
+
+        // Customer selection change
+        document.getElementById('customer_id')?.addEventListener('change', (e) => {
+            this.handleCustomerChange(e.target.value);
+        });
+    }
+
+    /**
+     * Setup form validation
+     */
+    setupValidation() {
+        const form = document.getElementById('saleForm');
+        if (!form) return;
+
+        const inputs = form.querySelectorAll('input, select');
+        inputs.forEach(input => {
+            input.addEventListener('blur', () => this.validateField(input));
+            input.addEventListener('input', () => this.clearFieldError(input));
+        });
+    }
+
+    /**
+     * Load sales from API
+     */
+    async loadSales() {
+        if (this.isLoading) return;
+
+        this.isLoading = true;
+        this.showLoading();
+
+        try {
+            const response = await window.api.getSales({
+                page: this.currentPage,
+                pageSize: this.pageSize,
+                search: this.searchTerm,
+                status: this.statusFilter,
+                dateRange: this.dateRangeFilter,
+                salesRep: this.salesRepFilter,
+                sortColumn: this.sortColumn,
+                sortDirection: this.sortDirection
+            });
+
+            this.sales = response.sales || [];
+            this.totalPages = response.totalPages || 1;
+            this.applyFilters();
+            this.showSuccess('Sales loaded successfully');
+        } catch (error) {
+            console.error('Sales load error:', error);
+            this.showError('Failed to load sales: ' + error.message);
+        } finally {
+            this.isLoading = false;
+            this.hideLoading();
         }
-    });
-    
-    // Sale submission
-    $('#submit-sale-btn').on('click', submitSale);
-    
-    // Sales history filters
-    $('#sales-filter').on('change', loadSalesHistory);
-    $('#date-filter').on('change', loadSalesHistory);
-    $('#sales-search').on('keyup', function() {
-        // Debounce the search to avoid too many queries
-        clearTimeout($(this).data('timeout'));
-        $(this).data('timeout', setTimeout(function() {
-            loadSalesHistory();
-        }, 500));
-    });
-    
-    // Sale details modal events
-    $('#update-sale-status-btn').on('click', updateSaleStatus);
-    $('#save-sale-notes-btn').on('click', saveSaleNotes);
-    $('#delete-sale-btn').on('click', deleteSale);
-    
-    // Sale notes field
-    $('#sale-notes').on('change', function() {
-        currentSale.notes = $(this).val();
-    });
-}
-
-/**
- * Load customers and sales representatives data
- */
-function loadCustomersAndSalesReps() {
-    // Load customers from real API
-    makeApiCall('GET', '/customers', null)
-        .then(data => {
-            if (data && Array.isArray(data)) {
-                customersCache = data;
-                populateCustomerSelect(data);
-            } else {
-                throw new Error('Invalid customers data received');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading customers:', error);
-            showNotification('Failed to load customers. Please check your connection.', 'danger');
-        });
-    
-    // Load sales reps from real API
-    makeApiCall('GET', '/salesreps', null)
-        .then(data => {
-            if (data && Array.isArray(data)) {
-                salesRepsCache = data;
-                populateSalesRepSelect(data);
-            } else {
-                throw new Error('Invalid sales representatives data received');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading sales reps:', error);
-            showNotification('Failed to load sales representatives. Please check your connection.', 'danger');
-        });
-}
-
-/**
- * Populate the customer select dropdown
- */
-function populateCustomerSelect(customers) {
-    const $select = $('#customer-select');
-    $select.find('option:not(:first)').remove();
-    
-    customers.forEach(customer => {
-        $select.append(`<option value="${customer.id}">${customer.name}</option>`);
-    });
-}
-
-/**
- * Populate the sales rep select dropdown
- */
-function populateSalesRepSelect(salesReps) {
-    const $select = $('#sales-rep-select');
-    $select.find('option:not(:first)').remove();
-    
-    salesReps.forEach(rep => {
-        $select.append(`<option value="${rep.id}">${rep.name}</option>`);
-    });
-}
-
-/**
- * Update the sale summary section when selections change
- */
-function updateSaleSummary() {
-    const customerId = $('#customer-select').val();
-    const salesRepId = $('#sales-rep-select').val();
-    
-    // Update customer info
-    if (customerId) {
-        const customer = customersCache.find(c => c.id === customerId);
-        currentSale.customer = customer;
-        $('#summary-customer').text(customer.name);
-    } else {
-        currentSale.customer = null;
-        $('#summary-customer').text('Not selected');
     }
-    
-    // Update sales rep info
-    if (salesRepId) {
-        const salesRep = salesRepsCache.find(r => r.id === salesRepId);
-        currentSale.salesRep = salesRep;
-        $('#summary-sales-rep').text(salesRep.name);
-    } else {
-        currentSale.salesRep = null;
-        $('#summary-sales-rep').text('Not selected');
+
+    /**
+     * Load customers
+     */
+    async loadCustomers() {
+        try {
+            const response = await window.api.getCustomers();
+            this.customers = response.customers || [];
+            this.populateCustomerDropdown();
+        } catch (error) {
+            console.error('Customers load error:', error);
+        }
     }
-    
-    // Update product count and total
-    $('#summary-product-count').text(currentSale.products.length);
-    const totalAmount = calculateTotal();
-    $('#summary-total').text(formatCurrency(totalAmount));
-}
 
-/**
- * Calculate the total amount of the current sale
- */
-function calculateTotal() {
-    return currentSale.products.reduce((total, product) => {
-        return total + (product.price * product.quantity);
-    }, 0);
-}
-
-/**
- * Format currency value for display
- */
-function formatCurrency(value) {
-    return '$' + parseFloat(value).toFixed(2);
-}
-
-/**
- * Search for products based on the search input
- */
-function searchProducts() {
-    const searchTerm = $('#product-search').val().trim();
-    
-    if (!searchTerm) {
-        showNotification('Please enter a search term', 'warning');
-        return;
+    /**
+     * Load products
+     */
+    async loadProducts() {
+        try {
+            const response = await window.api.getProducts();
+            this.products = response.products || [];
+        } catch (error) {
+            console.error('Products load error:', error);
+        }
     }
-    
-    // Show loading state
-    $('#product-search-btn').html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>');
-    
-    // Use real API for product search
-    makeApiCall('GET', `/products?search=${encodeURIComponent(searchTerm)}`, null)
-        .then(data => {
-            if (data && Array.isArray(data)) {
-                productSearchResults = data;
-                displayProductSearchResults(data);
-            } else {
-                throw new Error('Invalid product data received');
-            }
-        })
-        .catch(error => {
-            console.error('Error searching products:', error);
-            showNotification('Failed to search products. Please check your connection.', 'danger');
-            $('#product-results-body').html('<tr><td colspan="5" class="text-center text-danger">Error loading products</td></tr>');
-        })
-        .finally(() => {
-            // Restore button text
-            $('#product-search-btn').html('Search');
+
+    /**
+     * Load sales representatives
+     */
+    async loadSalesReps() {
+        try {
+            const response = await window.api.getSalesReps();
+            this.salesReps = response.salesReps || [];
+            this.populateSalesRepDropdown();
+            this.populateSalesRepFilter();
+        } catch (error) {
+            console.error('Sales reps load error:', error);
+        }
+    }
+
+    /**
+     * Populate customer dropdown
+     */
+    populateCustomerDropdown() {
+        const select = document.getElementById('customer_id');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">Select Customer</option>';
+        this.customers.forEach(customer => {
+            const option = document.createElement('option');
+            option.value = customer.id;
+            option.textContent = `${customer.name} (${customer.email})`;
+            select.appendChild(option);
         });
-}
+    }
 
-/**
- * Display product search results
- */
-function displayProductSearchResults(products) {
-    const $resultsBody = $('#product-results-body');
-    $resultsBody.empty();
-    
-    if (products.length === 0) {
-        $resultsBody.html('<tr><td colspan="5" class="text-center">No products found</td></tr>');
-    } else {
-        products.forEach(product => {
-            const stockClass = product.stock < 5 ? 'text-danger' : '';
-            
-            $resultsBody.append(`
+    /**
+     * Populate sales rep dropdown
+     */
+    populateSalesRepDropdown() {
+        const select = document.getElementById('sales_rep_id');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">Select Sales Representative</option>';
+        this.salesReps.forEach(rep => {
+            const option = document.createElement('option');
+            option.value = rep.id;
+            option.textContent = `${rep.name} (${rep.email})`;
+            select.appendChild(option);
+        });
+    }
+
+    /**
+     * Populate sales rep filter
+     */
+    populateSalesRepFilter() {
+        const select = document.getElementById('salesRepFilter');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">All Sales Reps</option>';
+        this.salesReps.forEach(rep => {
+            const option = document.createElement('option');
+            option.value = rep.id;
+            option.textContent = rep.name;
+            select.appendChild(option);
+        });
+    }
+
+    /**
+     * Handle customer selection change
+     */
+    async handleCustomerChange(customerId) {
+        if (!customerId) return;
+
+        try {
+            // Get customer's assigned sales rep
+            const assignments = await window.api.getCustomerSalesRepAssignments({ customer_id: customerId });
+            if (assignments.assignments && assignments.assignments.length > 0) {
+                const assignment = assignments.assignments[0];
+                const salesRepSelect = document.getElementById('sales_rep_id');
+                if (salesRepSelect) {
+                    salesRepSelect.value = assignment.sales_rep_id;
+                }
+            }
+        } catch (error) {
+            console.error('Customer assignment load error:', error);
+        }
+    }
+
+    /**
+     * Apply filters to sales
+     */
+    applyFilters() {
+        let filtered = [...this.sales];
+
+        // Apply search filter
+        if (this.searchTerm) {
+            const term = this.searchTerm.toLowerCase();
+            filtered = filtered.filter(sale => 
+                sale.id.toString().includes(term) ||
+                sale.customer_name.toLowerCase().includes(term) ||
+                sale.sales_rep_name.toLowerCase().includes(term)
+            );
+        }
+
+        // Apply status filter
+        if (this.statusFilter) {
+            filtered = filtered.filter(sale => sale.status === this.statusFilter);
+        }
+
+        // Apply date range filter
+        if (this.dateRangeFilter) {
+            const today = new Date();
+            let startDate;
+
+            switch (this.dateRangeFilter) {
+                case 'today':
+                    startDate = new Date(today.setHours(0, 0, 0, 0));
+                    break;
+                case 'week':
+                    startDate = new Date(today.setDate(today.getDate() - 7));
+                    break;
+                case 'month':
+                    startDate = new Date(today.setMonth(today.getMonth() - 1));
+                    break;
+                case 'quarter':
+                    startDate = new Date(today.setMonth(today.getMonth() - 3));
+                    break;
+                case 'year':
+                    startDate = new Date(today.setFullYear(today.getFullYear() - 1));
+                    break;
+            }
+
+            if (startDate) {
+                filtered = filtered.filter(sale => new Date(sale.sale_date) >= startDate);
+            }
+        }
+
+        // Apply sales rep filter
+        if (this.salesRepFilter) {
+            filtered = filtered.filter(sale => sale.sales_rep_id == this.salesRepFilter);
+        }
+
+        this.filteredSales = filtered;
+        this.currentPage = 1;
+        this.totalPages = Math.ceil(filtered.length / this.pageSize);
+        
+        this.renderTable();
+        this.renderPagination();
+        this.updateResultsCount();
+    }
+
+    /**
+     * Sort sales by column
+     */
+    sortSales(column) {
+        if (this.sortColumn === column) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = 'asc';
+        }
+
+        this.filteredSales.sort((a, b) => {
+            let aValue = a[column];
+            let bValue = b[column];
+
+            // Handle different data types
+            if (column === 'id' || column === 'sales_rep_id') {
+                aValue = parseInt(aValue);
+                bValue = parseInt(bValue);
+            } else if (column === 'total_amount') {
+                aValue = parseFloat(aValue);
+                bValue = parseFloat(bValue);
+            } else if (column === 'sale_date') {
+                aValue = new Date(aValue);
+                bValue = new Date(bValue);
+            } else {
+                aValue = String(aValue).toLowerCase();
+                bValue = String(bValue).toLowerCase();
+            }
+
+            if (aValue < bValue) return this.sortDirection === 'asc' ? -1 : 1;
+            if (aValue > bValue) return this.sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        this.renderTable();
+        this.updateSortIndicators();
+    }
+
+    /**
+     * Update sort indicators in table headers
+     */
+    updateSortIndicators() {
+        const headers = document.querySelectorAll('[data-sort]');
+        headers.forEach(header => {
+            header.classList.remove('sort-asc', 'sort-desc');
+            if (header.dataset.sort === this.sortColumn) {
+                header.classList.add(`sort-${this.sortDirection}`);
+            }
+        });
+    }
+
+    /**
+     * Render sales table
+     */
+    renderTable() {
+        const tbody = document.querySelector('#salesTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        const startIndex = (this.currentPage - 1) * this.pageSize;
+        const endIndex = startIndex + this.pageSize;
+        const pageSales = this.filteredSales.slice(startIndex, endIndex);
+
+        if (pageSales.length === 0) {
+            tbody.innerHTML = `
                 <tr>
-                    <td>${product.id}</td>
-                    <td>${product.name}</td>
-                    <td>${formatCurrency(product.price)}</td>
-                    <td class="${stockClass}">${product.stock}</td>
-                    <td>
-                        <button class="btn btn-sm btn-primary" 
-                                onclick="addProductToCart('${product.id}')"
-                                ${product.stock <= 0 ? 'disabled' : ''}>
-                            Add
-                        </button>
+                    <td colspan="8" class="text-center text-muted py-4">
+                        No sales found
                     </td>
                 </tr>
-            `);
-        });
-    }
-    
-    // Show the results container
-    $('#product-search-results').show();
-}
-
-/**
- * Add a product to the current sale cart
- */
-function addProductToCart(productId) {
-    const product = productSearchResults.find(p => p.id === productId);
-    
-    if (!product) {
-        return;
-    }
-    
-    // Check if product is already in the cart
-    const existingProduct = currentSale.products.find(p => p.productId === product.id);
-    
-    if (existingProduct) {
-        // Increment quantity if stock allows
-        if (existingProduct.quantity < product.stock) {
-            existingProduct.quantity += 1;
-            updateCartDisplay();
-            showNotification(`Increased quantity of ${product.name}`, 'success');
-        } else {
-            showNotification(`Maximum available stock for ${product.name} reached`, 'warning');
+            `;
+            return;
         }
-    } else {
-        // Add new product to cart
-        currentSale.products.push({
-            productId: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: 1,
-            maxStock: product.stock
-        });
-        
-        updateCartDisplay();
-        showNotification(`${product.name} added to cart`, 'success');
-    }
-    
-    // Update the sale summary
-    updateSaleSummary();
-}
 
-/**
- * Update the display of the cart with selected products
- */
-function updateCartDisplay() {
-    const $cartBody = $('#selected-products-body');
-    
-    if (currentSale.products.length === 0) {
-        $cartBody.html('<tr id="empty-cart-row"><td colspan="6" class="text-center">No products selected</td></tr>');
-    } else {
-        $cartBody.find('#empty-cart-row').remove();
+        pageSales.forEach(sale => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>
+                    <input type="checkbox" class="form-check-input sale-checkbox" 
+                           value="${sale.id}" data-sale-id="${sale.id}">
+                </td>
+                <td>#${sale.id}</td>
+                <td>${this.escapeHtml(sale.customer_name)}</td>
+                <td>${this.escapeHtml(sale.sales_rep_name || 'N/A')}</td>
+                <td>${window.ConfigHelper.formatCurrency(sale.total_amount)}</td>
+                <td>${window.ConfigHelper.formatDate(sale.sale_date)}</td>
+                <td>
+                    <span class="badge badge-${this.getStatusBadgeClass(sale.status)}">
+                        ${sale.status}
+                    </span>
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-primary me-1" 
+                            onclick="salesManager.showSaleModal(${sale.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-info me-1" 
+                            onclick="salesManager.viewSale(${sale.id})">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success me-1" 
+                            onclick="salesManager.printInvoice(${sale.id})">
+                        <i class="fas fa-print"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger" 
+                            onclick="salesManager.deleteSale(${sale.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+
+            // Add click event for checkbox change
+            const checkbox = row.querySelector('.sale-checkbox');
+            checkbox.addEventListener('change', () => {
+                this.updateBulkActionButtons();
+            });
+        });
+
+        // Setup sorting for table headers
+        this.setupTableSorting();
+    }
+
+    /**
+     * Setup table sorting
+     */
+    setupTableSorting() {
+        const headers = document.querySelectorAll('[data-sort]');
+        headers.forEach(header => {
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', () => {
+                this.sortSales(header.dataset.sort);
+            });
+        });
+    }
+
+    /**
+     * Render pagination
+     */
+    renderPagination() {
+        const pagination = document.getElementById('salesPagination');
+        if (!pagination) return;
+
+        pagination.innerHTML = '';
+
+        if (this.totalPages <= 1) return;
+
+        // Previous button
+        const prevBtn = document.createElement('li');
+        prevBtn.className = `page-item ${this.currentPage === 1 ? 'disabled' : ''}`;
+        prevBtn.innerHTML = `
+            <a class="page-link" href="#" data-page="${this.currentPage - 1}">
+                <i class="fas fa-chevron-left"></i>
+            </a>
+        `;
+        pagination.appendChild(prevBtn);
+
+        // Page numbers
+        const startPage = Math.max(1, this.currentPage - 2);
+        const endPage = Math.min(this.totalPages, this.currentPage + 2);
+
+        for (let i = startPage; i <= endPage; i++) {
+            const pageBtn = document.createElement('li');
+            pageBtn.className = `page-item ${this.currentPage === i ? 'active' : ''}`;
+            pageBtn.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+            pagination.appendChild(pageBtn);
+        }
+
+        // Next button
+        const nextBtn = document.createElement('li');
+        nextBtn.className = `page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}`;
+        nextBtn.innerHTML = `
+            <a class="page-link" href="#" data-page="${this.currentPage + 1}">
+                <i class="fas fa-chevron-right"></i>
+            </a>
+        `;
+        pagination.appendChild(nextBtn);
+
+        // Add click event listeners
+        pagination.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (e.target.closest('.page-link')) {
+                const page = parseInt(e.target.closest('.page-link').dataset.page);
+                if (page && page !== this.currentPage && page >= 1 && page <= this.totalPages) {
+                    this.currentPage = page;
+                    this.renderTable();
+                    this.renderPagination();
+                }
+            }
+        });
+    }
+
+    /**
+     * Update results count display
+     */
+    updateResultsCount() {
+        const countElement = document.getElementById('salesCount');
+        if (countElement) {
+            const startIndex = (this.currentPage - 1) * this.pageSize + 1;
+            const endIndex = Math.min(this.currentPage * this.pageSize, this.filteredSales.length);
+            countElement.textContent = `Showing ${startIndex}-${endIndex} of ${this.filteredSales.length} sales`;
+        }
+    }
+
+    /**
+     * Show sale modal for add/edit
+     */
+    showSaleModal(saleId = null) {
+        const modal = new bootstrap.Modal(document.getElementById('saleModal'));
+        const form = document.getElementById('saleForm');
+        const title = document.getElementById('saleModalLabel');
+
+        this.saleItems = [];
+
+        if (saleId) {
+            // Edit mode
+            const sale = this.sales.find(s => s.id === saleId);
+            if (sale) {
+                title.textContent = 'Edit Sale';
+                this.populateSaleForm(sale);
+                this.loadSaleItems(saleId);
+            }
+        } else {
+            // Add mode
+            title.textContent = 'Create New Sale';
+            form.reset();
+            this.clearFormErrors();
+            this.renderSaleItems();
+        }
+
+        modal.show();
+    }
+
+    /**
+     * Load sale items for editing
+     */
+    async loadSaleItems(saleId) {
+        try {
+            const sale = await window.api.getSale(saleId);
+            this.saleItems = sale.items || [];
+            this.renderSaleItems();
+        } catch (error) {
+            console.error('Sale items load error:', error);
+            this.saleItems = [];
+            this.renderSaleItems();
+        }
+    }
+
+    /**
+     * Populate sale form with data
+     */
+    populateSaleForm(sale) {
+        const form = document.getElementById('saleForm');
+        if (!form) return;
+
+        form.sale_id.value = sale.id || '';
+        form.customer_id.value = sale.customer_id || '';
+        form.sales_rep_id.value = sale.sales_rep_id || '';
+        form.sale_date.value = sale.sale_date ? sale.sale_date.split('T')[0] : '';
+        form.status.value = sale.status || 'pending';
+        form.notes.value = sale.notes || '';
+    }
+
+    /**
+     * Add sale item
+     */
+    addSaleItem() {
+        const productSelect = document.getElementById('productSelect');
+        const quantityInput = document.getElementById('itemQuantity');
+        const priceInput = document.getElementById('itemPrice');
+
+        const productId = productSelect.value;
+        const quantity = parseInt(quantityInput.value);
+        const price = parseFloat(priceInput.value);
+
+        if (!productId || !quantity || !price) {
+            this.showError('Please fill in all item fields');
+            return;
+        }
+
+        const product = this.products.find(p => p.id == productId);
+        if (!product) {
+            this.showError('Selected product not found');
+            return;
+        }
+
+        // Check if item already exists
+        const existingIndex = this.saleItems.findIndex(item => item.product_id == productId);
+        if (existingIndex >= 0) {
+            // Update existing item
+            this.saleItems[existingIndex].quantity += quantity;
+            this.saleItems[existingIndex].price = price;
+        } else {
+            // Add new item
+            this.saleItems.push({
+                product_id: productId,
+                product_name: product.name,
+                quantity: quantity,
+                price: price
+            });
+        }
+
+        // Clear inputs
+        productSelect.value = '';
+        quantityInput.value = '';
+        priceInput.value = '';
+
+        this.renderSaleItems();
+    }
+
+    /**
+     * Render sale items table
+     */
+    renderSaleItems() {
+        const tbody = document.querySelector('#saleItemsTable tbody');
+        const totalElement = document.getElementById('saleTotal');
         
-        // Clear and rebuild the cart
-        $cartBody.empty();
-        
-        currentSale.products.forEach((product, index) => {
-            const total = product.price * product.quantity;
-            
-            $cartBody.append(`
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        let total = 0;
+
+        if (this.saleItems.length === 0) {
+            tbody.innerHTML = `
                 <tr>
-                    <td>${product.productId}</td>
-                    <td>${product.name}</td>
-                    <td>${formatCurrency(product.price)}</td>
-                    <td>
-                        <div class="input-group input-group-sm">
-                            <div class="input-group-prepend">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="decrementQuantity(${index})"
-                                        ${product.quantity <= 1 ? 'disabled' : ''}>
-                                    -
-                                </button>
-                            </div>
-                            <input type="text" class="form-control text-center" value="${product.quantity}" 
-                                   onchange="updateQuantity(${index}, this.value)" style="max-width: 60px;">
-                            <div class="input-group-append">
-                                <button class="btn btn-outline-secondary" type="button" 
-                                        onclick="incrementQuantity(${index})"
-                                        ${product.quantity >= product.maxStock ? 'disabled' : ''}>
-                                    +
-                                </button>
-                            </div>
-                        </div>
+                    <td colspan="5" class="text-center text-muted py-3">
+                        No items added yet
                     </td>
-                    <td>${formatCurrency(total)}</td>
+                </tr>
+            `;
+        } else {
+            this.saleItems.forEach((item, index) => {
+                const subtotal = item.quantity * item.price;
+                total += subtotal;
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${this.escapeHtml(item.product_name)}</td>
+                    <td>${item.quantity}</td>
+                    <td>${window.ConfigHelper.formatCurrency(item.price)}</td>
+                    <td>${window.ConfigHelper.formatCurrency(subtotal)}</td>
                     <td>
-                        <button class="btn btn-sm btn-danger" onclick="removeProduct(${index})">
+                        <button type="button" class="btn btn-sm btn-danger" 
+                                onclick="salesManager.removeSaleItem(${index})">
                             <i class="fas fa-trash"></i>
                         </button>
                     </td>
-                </tr>
-            `);
-        });
-    }
-    
-    // Update total
-    const totalAmount = calculateTotal();
-    $('#total-amount').text(formatCurrency(totalAmount));
-}
-
-/**
- * Increment the quantity of a product in the cart
- */
-function incrementQuantity(index) {
-    const product = currentSale.products[index];
-    
-    if (product && product.quantity < product.maxStock) {
-        product.quantity += 1;
-        updateCartDisplay();
-        updateSaleSummary();
-    }
-}
-
-/**
- * Decrement the quantity of a product in the cart
- */
-function decrementQuantity(index) {
-    const product = currentSale.products[index];
-    
-    if (product && product.quantity > 1) {
-        product.quantity -= 1;
-        updateCartDisplay();
-        updateSaleSummary();
-    }
-}
-
-/**
- * Update the quantity of a product in the cart
- */
-function updateQuantity(index, value) {
-    const product = currentSale.products[index];
-    const newQuantity = parseInt(value, 10);
-    
-    if (isNaN(newQuantity) || newQuantity < 1) {
-        // Reset to previous value if invalid
-        updateCartDisplay();
-        return;
-    }
-    
-    if (newQuantity > product.maxStock) {
-        showNotification(`Maximum available stock for ${product.name} is ${product.maxStock}`, 'warning');
-        product.quantity = product.maxStock;
-    } else {
-        product.quantity = newQuantity;
-    }
-    
-    updateCartDisplay();
-    updateSaleSummary();
-}
-
-/**
- * Remove a product from the cart
- */
-function removeProduct(index) {
-    const product = currentSale.products[index];
-    const name = product.name;
-    
-    currentSale.products.splice(index, 1);
-    updateCartDisplay();
-    updateSaleSummary();
-    
-    showNotification(`${name} removed from cart`, 'info');
-}
-
-/**
- * Submit the current sale to the backend
- */
-function submitSale() {
-    // Validate required fields
-    if (!currentSale.customer) {
-        showNotification('Please select a customer', 'warning');
-        return;
-    }
-    
-    if (!currentSale.salesRep) {
-        showNotification('Please select a sales representative', 'warning');
-        return;
-    }
-    
-    if (currentSale.products.length === 0) {
-        showNotification('Please add at least one product', 'warning');
-        return;
-    }
-    
-    // Disable submit button and show loading state
-    const $submitBtn = $('#submit-sale-btn');
-    $submitBtn.prop('disabled', true).html(`
-        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        Processing...
-    `);
-    
-    // Prepare sale data
-    const saleData = {
-        customerId: currentSale.customer.id,
-        customerName: currentSale.customer.name,
-        salesRepId: currentSale.salesRep.id,
-        salesRepName: currentSale.salesRep.name,
-        products: currentSale.products.map(p => ({
-            productId: p.productId,
-            name: p.name,
-            price: p.price,
-            quantity: p.quantity
-        })),
-        totalAmount: calculateTotal(),
-        notes: currentSale.notes
-    };
-      // Submit to real API
-    makeApiCall('POST', '/sales', saleData)
-        .then(response => {
-            if (response && (response.saleId || response.SaleID)) {
-                showNotification('Sale successfully created!', 'success');
-                
-                // Reset the form
-                resetSaleForm();
-                
-                // Refresh sales history
-                loadSalesHistory();
-                
-                // Show sale details if ID available
-                const saleId = response.saleId || response.SaleID;
-                if (saleId) {
-                    setTimeout(() => viewSaleDetails(saleId), 1000);
-                }
-            } else {
-                throw new Error('Invalid response from server');
-            }
-        })
-        .catch(error => {
-            console.error('Error submitting sale:', error);
-            showNotification('Failed to create sale. Please check your connection and try again.', 'danger');
-        })
-        .finally(() => {
-            // Re-enable submit button
-            $submitBtn.prop('disabled', false).text('Complete Sale');
-        });
-}
-
-/**
- * Reset the sale form after submission
- */
-function resetSaleForm() {
-    // Reset select dropdowns
-    $('#customer-select').val('');
-    $('#sales-rep-select').val('');
-    
-    // Clear notes
-    $('#sale-notes').val('');
-    
-    // Reset current sale object
-    currentSale = {
-        customer: null,
-        salesRep: null,
-        products: [],
-        notes: ''
-    };
-    
-    // Reset the cart display
-    updateCartDisplay();
-    
-    // Reset the summary
-    updateSaleSummary();
-    
-    // Hide product search results
-    $('#product-search-results').hide();
-    $('#product-search').val('');
-}
-
-/**
- * Load sales history data
- */
-function loadSalesHistory() {
-    const statusFilter = $('#sales-filter').val();
-    const dateFilter = $('#date-filter').val();
-    const searchTerm = $('#sales-search').val().trim();
-    
-    // Show loading state
-    $('#sales-table-body').html(`
-        <tr>
-            <td colspan="7" class="text-center">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="sr-only">Loading...</span>
-                </div>
-            </td>
-        </tr>
-    `);
-    
-    // Build query parameters
-    let queryParams = '';
-    if (statusFilter) queryParams += `status=${encodeURIComponent(statusFilter)}&`;
-    if (dateFilter) queryParams += `dateRange=${encodeURIComponent(dateFilter)}&`;
-    if (searchTerm) queryParams += `search=${encodeURIComponent(searchTerm)}&`;
-    
-    // Remove trailing & if it exists
-    if (queryParams.endsWith('&')) {
-        queryParams = queryParams.slice(0, -1);
-    }
-      // Load sales history from real API
-    makeApiCall('GET', `/sales${queryParams ? '?' + queryParams : ''}`, null)
-        .then(data => {
-            if (data && Array.isArray(data)) {
-                displaySalesHistory(data);
-            } else if (data && (data.items || data.sales)) {
-                // Handle different response formats
-                const salesData = data.items || data.sales || [];
-                displaySalesHistory(salesData);
-            } else {
-                throw new Error('Invalid sales data received');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading sales history:', error);
-            showNotification('Failed to load sales history. Please check your connection.', 'danger');
-            
-            // Show error in table
-            $('#sales-table-body').html(`
-                <tr>
-                    <td colspan="7" class="text-center text-danger">
-                        Failed to load sales data. Please check your connection and try again.
-                    </td>
-                </tr>
-            `);
-        });
-}
-
-/**
- * Display sales history data
- */
-function displaySalesHistory(sales) {
-    const $tableBody = $('#sales-table-body');
-    $tableBody.empty();
-    
-    if (!sales || sales.length === 0) {
-        $tableBody.html('<tr><td colspan="7" class="text-center">No sales found</td></tr>');
-        return;
-    }
-    
-    sales.forEach(sale => {
-        // Format date
-        const saleDate = new Date(sale.Timestamp);
-        const formattedDate = saleDate.toLocaleDateString() + ' ' + saleDate.toLocaleTimeString();
-        
-        // Determine status badge class
-        let statusClass = 'badge-secondary';
-        if (sale.Status === 'Completed') statusClass = 'badge-success';
-        else if (sale.Status === 'Pending') statusClass = 'badge-warning';
-        else if (sale.Status === 'Cancelled') statusClass = 'badge-danger';
-        
-        $tableBody.append(`
-            <tr>
-                <td>${sale.SaleID}</td>
-                <td>${formattedDate}</td>
-                <td>${sale.CustomerName}</td>
-                <td>${sale.SalesRepName}</td>
-                <td>${formatCurrency(sale.TotalAmount)}</td>
-                <td><span class="badge ${statusClass}">${sale.Status}</span></td>
-                <td>
-                    <button class="btn btn-sm btn-info" onclick="viewSaleDetails('${sale.SaleID}')">
-                        <i class="fas fa-eye"></i> View
-                    </button>
-                </td>
-            </tr>
-        `);
-    });
-}
-
-/**
- * View sale details in modal
- */
-function viewSaleDetails(saleId) {
-    // Show loading in modal
-    $('#detail-sale-id').text('Loading...');
-    $('#detail-date').text('Loading...');
-    $('#detail-customer').text('Loading...');
-    $('#detail-sales-rep').text('Loading...');
-    $('#detail-status').text('Loading...').removeClass().addClass('badge');
-    $('#sale-products-table').html('<tr><td colspan="5" class="text-center">Loading...</td></tr>');
-    $('#sale-detail-total').text('$0.00');
-    $('#sale-detail-notes').val('');
-    
-    // Store the current sale ID in the modal for reference
-    $('#saleDetailsModal').data('saleId', saleId);
-    
-    // Show the modal
-    $('#saleDetailsModal').modal('show');
-      // Load sale details from real API
-    makeApiCall('GET', `/sales/${saleId}`, null)
-        .then(sale => {
-            if (sale && sale.SaleID) {
-                populateSaleDetailsModal(sale);
-            } else {
-                throw new Error('Invalid sale data received');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading sale details:', error);
-            showNotification('Failed to load sale details. Please check your connection.', 'danger');
-            
-            // Hide the modal
-            $('#saleDetailsModal').modal('hide');
-        });
-}
-
-/**
- * Populate the sale details modal with data
- */
-function populateSaleDetailsModal(sale) {
-    // Format date
-    const saleDate = new Date(sale.Timestamp);
-    const formattedDate = saleDate.toLocaleDateString() + ' ' + saleDate.toLocaleTimeString();
-    
-    // Update modal title
-    $('#saleDetailsTitle').text(`Sale Details - ${sale.SaleID}`);
-    
-    // Populate basic info
-    $('#detail-sale-id').text(sale.SaleID);
-    $('#detail-date').text(formattedDate);
-    $('#detail-customer').text(sale.CustomerName);
-    $('#detail-sales-rep').text(sale.SalesRepName);
-    
-    // Set status and badge color
-    let statusClass = 'badge-secondary';
-    if (sale.Status === 'Completed') statusClass = 'badge-success';
-    else if (sale.Status === 'Pending') statusClass = 'badge-warning';
-    else if (sale.Status === 'Cancelled') statusClass = 'badge-danger';
-    
-    $('#detail-status').text(sale.Status).removeClass().addClass(`badge ${statusClass}`);
-    
-    // Set the select dropdown to match current status
-    $('#update-sale-status').val(sale.Status);
-    
-    // Set notes
-    $('#sale-detail-notes').val(sale.Notes || '');
-    
-    // Populate products table
-    const $productsTable = $('#sale-products-table');
-    $productsTable.empty();
-    
-    if (!sale.Products || sale.Products.length === 0) {
-        $productsTable.html('<tr><td colspan="5" class="text-center">No products in this sale</td></tr>');
-    } else {
-        let totalAmount = 0;
-        
-        sale.Products.forEach(product => {
-            const total = product.price * product.quantity;
-            totalAmount += total;
-            
-            $productsTable.append(`
-                <tr>
-                    <td>${product.productId}</td>
-                    <td>${product.name}</td>
-                    <td>${formatCurrency(product.price)}</td>
-                    <td>${product.quantity}</td>
-                    <td>${formatCurrency(total)}</td>
-                </tr>
-            `);
-        });
-        
-        // Update total
-        $('#sale-detail-total').text(formatCurrency(totalAmount));
-    }
-    
-    // Enable/disable buttons based on status
-    const isCancelled = sale.Status === 'Cancelled';
-    $('#update-sale-status').prop('disabled', isCancelled);
-    $('#update-sale-status-btn').prop('disabled', isCancelled);
-    
-    // Disable delete button if completed
-    const isCompleted = sale.Status === 'Completed';
-    $('#delete-sale-btn').prop('disabled', isCompleted);
-}
-
-/**
- * Update sale status
- */
-function updateSaleStatus() {
-    const saleId = $('#saleDetailsModal').data('saleId');
-    const newStatus = $('#update-sale-status').val();
-    const notes = $('#sale-detail-notes').val();
-    
-    if (!saleId || !newStatus) {
-        return;
-    }
-    
-    // Disable button and show loading state
-    const $btn = $('#update-sale-status-btn');
-    $btn.prop('disabled', true).html(`
-        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        Updating...
-    `);
-      // Update sale status via real API
-    makeApiCall('PUT', `/sales/${saleId}`, { status: newStatus, notes: notes })
-        .then(response => {
-            if (response) {
-                showNotification('Sale status updated successfully', 'success');
-                
-                // Refresh the details modal
-                viewSaleDetails(saleId);
-                
-                // Refresh sales history
-                loadSalesHistory();
-            } else {
-                throw new Error('Invalid response from server');
-            }
-        })
-        .catch(error => {
-            console.error('Error updating sale status:', error);
-            showNotification('Failed to update sale status. Please check your connection.', 'danger');
-        })
-        .finally(() => {
-            // Re-enable button
-            $btn.prop('disabled', false).text('Update Status');
-        });
-}
-
-/**
- * Save sale notes
- */
-function saveSaleNotes() {
-    const saleId = $('#saleDetailsModal').data('saleId');
-    const notes = $('#sale-detail-notes').val();
-    
-    if (!saleId) {
-        return;
-    }
-    
-    // Disable button and show loading state
-    const $btn = $('#save-sale-notes-btn');
-    $btn.prop('disabled', true).html(`
-        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        Saving...
-    `);
-      // Save sale notes via real API
-    makeApiCall('PUT', `/sales/${saleId}/notes`, { notes: notes })
-        .then(response => {
-            if (response) {
-                showNotification('Notes saved successfully', 'success');
-            } else {
-                throw new Error('Invalid response from server');
-            }
-        })
-        .catch(error => {
-            console.error('Error saving notes:', error);
-            showNotification('Failed to save notes. Please check your connection.', 'danger');
-        })
-        .finally(() => {
-            // Re-enable button
-            $btn.prop('disabled', false).text('Save Notes');
-        });
-}
-
-/**
- * Delete a sale
- */
-function deleteSale() {
-    const saleId = $('#saleDetailsModal').data('saleId');
-    
-    if (!saleId) {
-        return;
-    }
-    
-    // Confirm deletion
-    if (!confirm('Are you sure you want to delete this sale? This action cannot be undone.')) {
-        return;
-    }
-    
-    // Disable button and show loading state
-    const $btn = $('#delete-sale-btn');
-    $btn.prop('disabled', true).html(`
-        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        Deleting...
-    `);
-      // Delete sale via real API
-    makeApiCall('DELETE', `/sales/${saleId}`, null)
-        .then(response => {
-            if (response) {
-                showNotification('Sale deleted successfully', 'success');
-                
-                // Hide the modal
-                $('#saleDetailsModal').modal('hide');
-                
-                // Refresh sales history
-                loadSalesHistory();
-            } else {
-                throw new Error('Invalid response from server');
-            }
-        })
-        .catch(error => {
-            console.error('Error deleting sale:', error);
-            showNotification('Failed to delete sale. Please check your connection.', 'danger');
-        })
-        .finally(() => {
-            // Re-enable button
-            $btn.prop('disabled', false).text('Delete Sale');
-        });
-}
-
-/**
- * Display a notification to the user
- */
-function showNotification(message, type = 'info') {
-    // If the web app uses a notification system
-    // This is a simple implementation that could be enhanced
-    
-    // Create notification element
-    const notification = $(`
-        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-            ${message}
-            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-            </button>
-        </div>
-    `);
-    
-    // Append to notification area (create if doesn't exist)
-    if ($('#notification-area').length === 0) {
-        $('body').append('<div id="notification-area" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>');
-    }
-    
-    $('#notification-area').append(notification);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        notification.alert('close');
-    }, 5000);
-}
-
-/**
- * Make API call - use only real API endpoints
- * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
- * @param {string} endpoint - API endpoint
- * @param {object} data - Request data for POST/PUT
- * @returns {Promise} - Promise resolving to the response data
- */
-function makeApiCall(method, endpoint, data) {
-    // Use the apiRequest function from main.js if available
-    if (typeof apiRequest === 'function') {
-        return apiRequest(endpoint, method, data);
-    }
-    
-    // Fallback to direct fetch if apiRequest not available
-    const url = `${API_BASE_URL}${endpoint}`;
-    
-    const options = {
-        method: method,
-        headers: {
-            'Content-Type': 'application/json'
+                `;
+                tbody.appendChild(row);
+            });
         }
-    };
-    
-    if (data && (method === 'POST' || method === 'PUT')) {
-        options.body = JSON.stringify(data);
+
+        if (totalElement) {
+            totalElement.textContent = window.ConfigHelper.formatCurrency(total);
+        }
+
+        // Populate product dropdown for adding items
+        this.populateProductDropdown();
     }
-    
-    return fetch(url, options)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`API error: ${response.status} - ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .catch(error => {
-            console.error('API Request Error:', error);
-            throw error; // Re-throw error instead of falling back to mock data
+
+    /**
+     * Populate product dropdown for adding items
+     */
+    populateProductDropdown() {
+        const select = document.getElementById('productSelect');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">Select Product</option>';
+        this.products.forEach(product => {
+            const option = document.createElement('option');
+            option.value = product.id;
+            option.textContent = `${product.name} - ${window.ConfigHelper.formatCurrency(product.price)}`;
+            option.dataset.price = product.price;
+            select.appendChild(option);
         });
+
+        // Auto-fill price when product is selected
+        select.addEventListener('change', (e) => {
+            const priceInput = document.getElementById('itemPrice');
+            if (priceInput && e.target.selectedOptions[0]) {
+                priceInput.value = e.target.selectedOptions[0].dataset.price || '';
+            }
+        });
+    }
+
+    /**
+     * Remove sale item
+     */
+    removeSaleItem(index) {
+        this.saleItems.splice(index, 1);
+        this.renderSaleItems();
+    }
+
+    /**
+     * Handle sale form submission
+     */
+    async handleSaleSubmit() {
+        const form = document.getElementById('saleForm');
+        if (!form || !this.validateForm()) return;
+
+        if (this.saleItems.length === 0) {
+            this.showError('Please add at least one item to the sale');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const saleData = {
+            customer_id: parseInt(formData.get('customer_id')),
+            sales_rep_id: parseInt(formData.get('sales_rep_id')),
+            sale_date: formData.get('sale_date'),
+            status: formData.get('status'),
+            notes: formData.get('notes'),
+            items: this.saleItems.map(item => ({
+                product_id: item.product_id,
+                quantity: item.quantity,
+                price: item.price
+            }))
+        };
+
+        const saleId = formData.get('sale_id');
+        const isEdit = saleId && saleId !== '';
+
+        try {
+            let response;
+            if (isEdit) {
+                response = await window.api.updateSale(saleId, saleData);
+                this.showSuccess('Sale updated successfully');
+            } else {
+                response = await window.api.createSale(saleData);
+                this.showSuccess('Sale created successfully');
+            }
+
+            // Close modal and refresh data
+            const modal = bootstrap.Modal.getInstance(document.getElementById('saleModal'));
+            modal.hide();
+            await this.loadSales();
+
+        } catch (error) {
+            console.error('Sale save error:', error);
+            this.showError('Failed to save sale: ' + error.message);
+        }
+    }
+
+    /**
+     * View sale details
+     */
+    async viewSale(saleId) {
+        try {
+            const sale = await window.api.getSale(saleId);
+            const modal = new bootstrap.Modal(document.getElementById('saleViewModal'));
+            const content = document.getElementById('saleViewContent');
+            const title = document.getElementById('saleViewTitle');
+
+            title.textContent = `Sale Details - #${sale.id}`;
+
+            let itemsHtml = '';
+            let total = 0;
+
+            if (sale.items && sale.items.length > 0) {
+                itemsHtml = `
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Quantity</th>
+                                <th>Unit Price</th>
+                                <th>Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                sale.items.forEach(item => {
+                    const subtotal = item.quantity * item.price;
+                    total += subtotal;
+                    itemsHtml += `
+                        <tr>
+                            <td>${this.escapeHtml(item.product_name)}</td>
+                            <td>${item.quantity}</td>
+                            <td>${window.ConfigHelper.formatCurrency(item.price)}</td>
+                            <td>${window.ConfigHelper.formatCurrency(subtotal)}</td>
+                        </tr>
+                    `;
+                });
+
+                itemsHtml += `
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info">
+                                <th colspan="3">Total</th>
+                                <th>${window.ConfigHelper.formatCurrency(total)}</th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                `;
+            } else {
+                itemsHtml = '<p class="text-muted">No items found for this sale.</p>';
+            }
+
+            content.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Sale Information</h6>
+                        <table class="table table-borderless">
+                            <tr><td><strong>Sale ID:</strong></td><td>#${sale.id}</td></tr>
+                            <tr><td><strong>Customer:</strong></td><td>${this.escapeHtml(sale.customer_name)}</td></tr>
+                            <tr><td><strong>Sales Rep:</strong></td><td>${this.escapeHtml(sale.sales_rep_name || 'N/A')}</td></tr>
+                            <tr><td><strong>Date:</strong></td><td>${window.ConfigHelper.formatDate(sale.sale_date)}</td></tr>
+                            <tr><td><strong>Status:</strong></td><td>
+                                <span class="badge badge-${this.getStatusBadgeClass(sale.status)}">
+                                    ${sale.status}
+                                </span>
+                            </td></tr>
+                            <tr><td><strong>Total Amount:</strong></td><td><strong>${window.ConfigHelper.formatCurrency(sale.total_amount)}</strong></td></tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Notes</h6>
+                        <p>${this.escapeHtml(sale.notes || 'No notes')}</p>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6>Sale Items</h6>
+                        ${itemsHtml}
+                    </div>
+                </div>
+            `;
+
+            modal.show();
+        } catch (error) {
+            console.error('Sale details error:', error);
+            this.showError('Failed to load sale details: ' + error.message);
+        }
+    }
+
+    /**
+     * Print invoice
+     */
+    async printInvoice(saleId) {
+        try {
+            const sale = await window.api.getSale(saleId);
+            
+            // Create a new window for printing
+            const printWindow = window.open('', '_blank');
+            
+            let itemsHtml = '';
+            let total = 0;
+
+            if (sale.items && sale.items.length > 0) {
+                sale.items.forEach(item => {
+                    const subtotal = item.quantity * item.price;
+                    total += subtotal;
+                    itemsHtml += `
+                        <tr>
+                            <td>${this.escapeHtml(item.product_name)}</td>
+                            <td style="text-align: center;">${item.quantity}</td>
+                            <td style="text-align: right;">${window.ConfigHelper.formatCurrency(item.price)}</td>
+                            <td style="text-align: right;">${window.ConfigHelper.formatCurrency(subtotal)}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            const invoiceHtml = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Invoice #${sale.id}</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 20px; }
+                        .header { text-align: center; margin-bottom: 30px; }
+                        .company-name { font-size: 24px; font-weight: bold; }
+                        .invoice-info { margin: 20px 0; }
+                        .customer-info { margin: 20px 0; }
+                        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                        th, td { border: 1px solid #ddd; padding: 8px; }
+                        th { background-color: #f2f2f2; }
+                        .total-row { font-weight: bold; background-color: #f8f9fa; }
+                        .text-right { text-align: right; }
+                        @media print { body { margin: 0; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div class="company-name">SalePoint Solution</div>
+                        <div>Sales Management System</div>
+                    </div>
+                    
+                    <div class="invoice-info">
+                        <h3>Invoice #${sale.id}</h3>
+                        <p><strong>Date:</strong> ${window.ConfigHelper.formatDate(sale.sale_date)}</p>
+                        <p><strong>Status:</strong> ${sale.status}</p>
+                    </div>
+                    
+                    <div class="customer-info">
+                        <h4>Bill To:</h4>
+                        <p><strong>${this.escapeHtml(sale.customer_name)}</strong></p>
+                        <p>Sales Representative: ${this.escapeHtml(sale.sales_rep_name || 'N/A')}</p>
+                    </div>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th style="text-align: center;">Quantity</th>
+                                <th style="text-align: right;">Unit Price</th>
+                                <th style="text-align: right;">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemsHtml}
+                            <tr class="total-row">
+                                <td colspan="3" class="text-right">Total:</td>
+                                <td class="text-right">${window.ConfigHelper.formatCurrency(sale.total_amount)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    ${sale.notes ? `<div><strong>Notes:</strong><br>${this.escapeHtml(sale.notes)}</div>` : ''}
+                    
+                    <div style="margin-top: 40px; text-align: center; color: #666;">
+                        Thank you for your business!
+                    </div>
+                </body>
+                </html>
+            `;
+
+            printWindow.document.write(invoiceHtml);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+            
+        } catch (error) {
+            console.error('Print invoice error:', error);
+            this.showError('Failed to generate invoice: ' + error.message);
+        }
+    }
+
+    /**
+     * Delete sale
+     */
+    async deleteSale(saleId) {
+        const sale = this.sales.find(s => s.id === saleId);
+        if (!sale) return;
+
+        const confirmed = confirm(`Are you sure you want to delete sale #${sale.id}?`);
+        if (!confirmed) return;
+
+        try {
+            await window.api.deleteSale(saleId);
+            this.showSuccess('Sale deleted successfully');
+            await this.loadSales();
+        } catch (error) {
+            console.error('Sale delete error:', error);
+            this.showError('Failed to delete sale: ' + error.message);
+        }
+    }
+
+    /**
+     * Handle select all checkbox
+     */
+    handleSelectAll(checked) {
+        const checkboxes = document.querySelectorAll('.sale-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = checked;
+        });
+        this.updateBulkActionButtons();
+    }
+
+    /**
+     * Handle bulk delete
+     */
+    async handleBulkDelete() {
+        const selectedIds = this.getSelectedSaleIds();
+        if (selectedIds.length === 0) {
+            this.showError('Please select sales to delete');
+            return;
+        }
+
+        const confirmed = confirm(`Are you sure you want to delete ${selectedIds.length} selected sales?`);
+        if (!confirmed) return;
+
+        try {
+            await Promise.all(selectedIds.map(id => window.api.deleteSale(id)));
+            this.showSuccess(`${selectedIds.length} sales deleted successfully`);
+            await this.loadSales();
+        } catch (error) {
+            console.error('Bulk delete error:', error);
+            this.showError('Failed to delete sales: ' + error.message);
+        }
+    }
+
+    /**
+     * Get selected sale IDs
+     */
+    getSelectedSaleIds() {
+        const checkboxes = document.querySelectorAll('.sale-checkbox:checked');
+        return Array.from(checkboxes).map(cb => parseInt(cb.value));
+    }
+
+    /**
+     * Update bulk action buttons
+     */
+    updateBulkActionButtons() {
+        const selectedCount = this.getSelectedSaleIds().length;
+        const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+        
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
+            bulkDeleteBtn.textContent = `Delete Selected (${selectedCount})`;
+        }
+    }
+
+    /**
+     * Export sales
+     */
+    async exportSales() {
+        try {
+            const data = this.filteredSales.map(sale => ({
+                'Sale ID': sale.id,
+                'Customer': sale.customer_name,
+                'Sales Rep': sale.sales_rep_name || 'N/A',
+                'Total Amount': sale.total_amount,
+                'Sale Date': window.ConfigHelper.formatDate(sale.sale_date),
+                'Status': sale.status,
+                'Notes': sale.notes || ''
+            }));
+
+            const csv = this.convertToCSV(data);
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sales-${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            this.showSuccess('Sales exported successfully');
+        } catch (error) {
+            console.error('Export error:', error);
+            this.showError('Failed to export sales: ' + error.message);
+        }
+    }
+
+    /**
+     * Convert array to CSV
+     */
+    convertToCSV(data) {
+        if (data.length === 0) return '';
+
+        const headers = Object.keys(data[0]);
+        const csvRows = [headers.join(',')];
+
+        data.forEach(row => {
+            const values = headers.map(header => {
+                const value = row[header];
+                return `"${String(value).replace(/"/g, '""')}"`;
+            });
+            csvRows.push(values.join(','));
+        });
+
+        return csvRows.join('\n');
+    }
+
+    /**
+     * Validate form
+     */
+    validateForm() {
+        const form = document.getElementById('saleForm');
+        if (!form) return false;
+
+        let isValid = true;
+        const fields = ['customer_id', 'sales_rep_id', 'sale_date'];
+
+        fields.forEach(fieldName => {
+            const field = form[fieldName];
+            if (!this.validateField(field)) {
+                isValid = false;
+            }
+        });
+
+        return isValid;
+    }
+
+    /**
+     * Validate individual field
+     */
+    validateField(field) {
+        if (!field) return true;
+
+        const value = field.value.trim();
+        let isValid = true;
+        let message = '';
+
+        switch (field.name) {
+            case 'customer_id':
+                isValid = value !== '';
+                message = isValid ? '' : 'Customer is required';
+                break;
+            case 'sales_rep_id':
+                isValid = value !== '';
+                message = isValid ? '' : 'Sales representative is required';
+                break;
+            case 'sale_date':
+                isValid = value !== '';
+                message = isValid ? '' : 'Sale date is required';
+                break;
+        }
+
+        this.showFieldValidation(field, isValid, message);
+        return isValid;
+    }
+
+    /**
+     * Show field validation state
+     */
+    showFieldValidation(field, isValid, message) {
+        field.classList.remove('is-valid', 'is-invalid');
+        field.classList.add(isValid ? 'is-valid' : 'is-invalid');
+
+        const feedback = field.parentNode.querySelector('.invalid-feedback');
+        if (feedback) {
+            feedback.textContent = message;
+        }
+    }
+
+    /**
+     * Clear field error
+     */
+    clearFieldError(field) {
+        field.classList.remove('is-invalid');
+        const feedback = field.parentNode.querySelector('.invalid-feedback');
+        if (feedback) {
+            feedback.textContent = '';
+        }
+    }
+
+    /**
+     * Clear all form errors
+     */
+    clearFormErrors() {
+        const form = document.getElementById('saleForm');
+        if (!form) return;
+
+        const fields = form.querySelectorAll('.is-invalid, .is-valid');
+        fields.forEach(field => {
+            field.classList.remove('is-invalid', 'is-valid');
+        });
+
+        const feedbacks = form.querySelectorAll('.invalid-feedback');
+        feedbacks.forEach(feedback => {
+            feedback.textContent = '';
+        });
+    }
+
+    /**
+     * Get status badge class
+     */
+    getStatusBadgeClass(status) {
+        switch (status?.toLowerCase()) {
+            case 'completed':
+                return 'success';
+            case 'pending':
+                return 'warning';
+            case 'cancelled':
+                return 'danger';
+            case 'processing':
+                return 'info';
+            default:
+                return 'secondary';
+        }
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Show loading state
+     */
+    showLoading() {
+        const loadingElement = document.getElementById('salesLoading');
+        if (loadingElement) {
+            loadingElement.style.display = 'block';
+        }
+    }
+
+    /**
+     * Hide loading state
+     */
+    hideLoading() {
+        const loadingElement = document.getElementById('salesLoading');
+        if (loadingElement) {
+            loadingElement.style.display = 'none';
+        }
+    }
+
+    /**
+     * Show success message
+     */
+    showSuccess(message) {
+        this.showAlert(message, 'success');
+    }
+
+    /**
+     * Show error message
+     */
+    showError(message) {
+        this.showAlert(message, 'danger');
+    }
+
+    /**
+     * Show alert message
+     */
+    showAlert(message, type = 'info') {
+        const existingAlerts = document.querySelectorAll('.sales-alert');
+        existingAlerts.forEach(alert => alert.remove());
+
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show sales-alert`;
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        const salesSection = document.getElementById('sales');
+        if (salesSection) {
+            salesSection.insertBefore(alert, salesSection.firstChild);
+        }
+
+        setTimeout(() => {
+            if (alert.parentNode) {
+                alert.remove();
+            }
+        }, 5000);
+    }
 }
 
-// End of sales.js - All functions use real API endpoints only
+// Create global instance
+const salesManager = new SalesManager();
+
+// Export for different module systems
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = SalesManager;
+} else if (typeof window !== 'undefined') {
+    window.SalesManager = SalesManager;
+    window.salesManager = salesManager;
+}
