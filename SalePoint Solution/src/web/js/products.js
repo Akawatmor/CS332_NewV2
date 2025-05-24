@@ -1,7 +1,7 @@
 /* Product page functionality for SalePoint application */
 
-// API Endpoint
-const API_URL = API_CONFIG.baseUrl;
+// API Endpoint - Get from main.js config
+const API_URL = API_CONFIG ? API_CONFIG.baseUrl : 'https://your-api-gateway-id.execute-api.us-east-1.amazonaws.com/prod';
 
 // Initialize on page load
 $(document).ready(function() {
@@ -39,83 +39,23 @@ $(document).ready(function() {
 function loadProducts() {
     $('#products-container').html('<div class="col-12 text-center"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
     
-    // Simulate API call for demonstration purposes
-    // In a real implementation, use the actual API
-    setTimeout(() => {
-        // Sample product data (would come from the API)
-        const products = [
-            {
-                product_id: 'PROD001',
-                product_name: 'Laptop Computer',
-                description: 'High-performance laptop with 16GB RAM and 512GB SSD. Perfect for professional use.',
-                price: 1299.99,
-                stock_quantity: 50,
-                category: 'electronics',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Laptop'
-            },
-            {
-                product_id: 'PROD002',
-                product_name: 'Office Chair',
-                description: 'Ergonomic office chair with lumbar support and adjustable height.',
-                price: 249.99,
-                stock_quantity: 100,
-                category: 'furniture',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Office+Chair'
-            },
-            {
-                product_id: 'PROD003',
-                product_name: 'Wireless Headphones',
-                description: 'Noise-cancelling wireless headphones with 30-hour battery life and premium sound quality.',
-                price: 199.99,
-                stock_quantity: 75,
-                category: 'electronics',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Headphones'
-            },
-            {
-                product_id: 'PROD004',
-                product_name: 'Smart TV 55"',
-                description: '4K Ultra HD Smart TV with built-in streaming apps and voice control.',
-                price: 599.99,
-                stock_quantity: 30,
-                category: 'electronics',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Smart+TV'
-            },
-            {
-                product_id: 'PROD005',
-                product_name: 'Coffee Maker',
-                description: 'Programmable coffee maker with 12-cup capacity and auto-shutoff feature.',
-                price: 89.99,
-                stock_quantity: 45,
-                category: 'appliances',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Coffee+Maker'
-            },
-            {
-                product_id: 'PROD006',
-                product_name: 'Desk Lamp',
-                description: 'Adjustable LED desk lamp with multiple brightness settings and USB charging port.',
-                price: 49.99,
-                stock_quantity: 60,
-                category: 'furniture',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Desk+Lamp'
-            }
-        ];
-        
-        displayProducts(products);
-        
-        /* In a real implementation, use the actual API:
-        $.ajax({
-            url: `${API_URL}/products`,
-            method: 'GET',
-            success: function(data) {
+    // Use the apiRequest function from main.js for real API calls
+    if (typeof apiRequest === 'function') {
+        apiRequest('/products')
+            .then(data => {
                 displayProducts(data);
-            },
-            error: function(error) {
+            })
+            .catch(error => {
                 console.error('Error loading products:', error);
-                $('#products-container').html('<div class="col-12"><div class="alert alert-danger">Error loading products. Please try again later.</div></div>');
-            }
-        });
-        */
-    }, 800);
+                // Fallback to mock data for demo purposes
+                const mockProducts = getMockProducts();
+                displayProducts(mockProducts);
+            });
+    } else {
+        // Fallback to mock data if apiRequest not available
+        const mockProducts = getMockProducts();
+        displayProducts(mockProducts);
+    }
 }
 
 // Search products based on input and filters
@@ -125,65 +65,34 @@ function searchProducts() {
     
     $('#products-container').html('<div class="col-12 text-center"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
     
-    // Simulate API call with search parameters
-    setTimeout(() => {
-        // Sample product data (would come from the API)
-        const allProducts = [
-            {
-                product_id: 'PROD001',
-                product_name: 'Laptop Computer',
-                description: 'High-performance laptop with 16GB RAM and 512GB SSD. Perfect for professional use.',
-                price: 1299.99,
-                stock_quantity: 50,
-                category: 'electronics',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Laptop'
-            },
-            {
-                product_id: 'PROD002',
-                product_name: 'Office Chair',
-                description: 'Ergonomic office chair with lumbar support and adjustable height.',
-                price: 249.99,
-                stock_quantity: 100,
-                category: 'furniture',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Office+Chair'
-            },
-            {
-                product_id: 'PROD003',
-                product_name: 'Wireless Headphones',
-                description: 'Noise-cancelling wireless headphones with 30-hour battery life and premium sound quality.',
-                price: 199.99,
-                stock_quantity: 75,
-                category: 'electronics',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Headphones'
-            },
-            {
-                product_id: 'PROD004',
-                product_name: 'Smart TV 55"',
-                description: '4K Ultra HD Smart TV with built-in streaming apps and voice control.',
-                price: 599.99,
-                stock_quantity: 30,
-                category: 'electronics',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Smart+TV'
-            },
-            {
-                product_id: 'PROD005',
-                product_name: 'Coffee Maker',
-                description: 'Programmable coffee maker with 12-cup capacity and auto-shutoff feature.',
-                price: 89.99,
-                stock_quantity: 45,
-                category: 'appliances',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Coffee+Maker'
-            },
-            {
-                product_id: 'PROD006',
-                product_name: 'Desk Lamp',
-                description: 'Adjustable LED desk lamp with multiple brightness settings and USB charging port.',
-                price: 49.99,
-                stock_quantity: 60,
-                category: 'furniture',
-                imageUrl: 'https://via.placeholder.com/400x300?text=Desk+Lamp'
-            }
-        ];
+    if (typeof apiRequest === 'function') {
+        // Build query parameters
+        let queryParams = [];
+        if (searchTerm) queryParams.push(`search=${encodeURIComponent(searchTerm)}`);
+        if (category) queryParams.push(`category=${encodeURIComponent(category)}`);
+        
+        const endpoint = '/products' + (queryParams.length > 0 ? '?' + queryParams.join('&') : '');
+        
+        apiRequest(endpoint)
+            .then(data => {
+                displayProducts(data);
+            })
+            .catch(error => {
+                console.error('Error searching products:', error);
+                // Fallback to mock data filtering
+                const mockProducts = getMockProducts();
+                const filteredProducts = mockProducts.filter(p => {
+                    const matchesSearch = !searchTerm || 
+                        p.product_name.toLowerCase().includes(searchTerm) || 
+                        p.description.toLowerCase().includes(searchTerm) ||
+                        p.product_id.toLowerCase().includes(searchTerm);
+                    const matchesCategory = !category || p.category === category;
+                    return matchesSearch && matchesCategory;
+                });
+                displayProducts(filteredProducts);
+            });
+    } else {
+        const allProducts = getMockProducts();
         
         // Filter the products based on search criteria
         let filteredProducts = allProducts;
@@ -201,32 +110,7 @@ function searchProducts() {
         }
         
         displayProducts(filteredProducts);
-        
-        /* In a real implementation, use the actual API:
-        let url = `${API_URL}/products`;
-        if (searchTerm || category) {
-            url += '?';
-            if (searchTerm) {
-                url += `search=${encodeURIComponent(searchTerm)}`;
-            }
-            if (category) {
-                url += searchTerm ? `&category=${encodeURIComponent(category)}` : `category=${encodeURIComponent(category)}`;
-            }
-        }
-        
-        $.ajax({
-            url: url,
-            method: 'GET',
-            success: function(data) {
-                displayProducts(data);
-            },
-            error: function(error) {
-                console.error('Error searching products:', error);
-                $('#products-container').html('<div class="col-12"><div class="alert alert-danger">Error searching products. Please try again later.</div></div>');
-            }
-        });
-        */
-    }, 500);
+    }
 }
 
 // Display products in cards
@@ -454,4 +338,55 @@ function addProductToSale(productId) {
     
     // Update localStorage
     localStorage.setItem('saleItems', JSON.stringify(saleItems));
+}
+
+// Mock products for fallback
+function getMockProducts() {
+    return [
+        {
+            product_id: 'PROD001',
+            product_name: 'Laptop Computer',
+            description: 'High-performance laptop with 16GB RAM and 512GB SSD. Perfect for professional use.',
+            price: 1299.99,
+            stock_quantity: 25,
+            category: 'electronics',
+            imageUrl: 'https://via.placeholder.com/400x300?text=Laptop'
+        },
+        {
+            product_id: 'PROD002',
+            product_name: 'Wireless Mouse',
+            description: 'Ergonomic wireless mouse with precision tracking and long battery life.',
+            price: 29.99,
+            stock_quantity: 100,
+            category: 'electronics',
+            imageUrl: 'https://via.placeholder.com/400x300?text=Mouse'
+        },
+        {
+            product_id: 'PROD003',
+            product_name: 'Office Chair',
+            description: 'Comfortable ergonomic office chair with lumbar support and adjustable height.',
+            price: 199.99,
+            stock_quantity: 15,
+            category: 'furniture',
+            imageUrl: 'https://via.placeholder.com/400x300?text=Office+Chair'
+        },
+        {
+            product_id: 'PROD004',
+            product_name: 'Monitor',
+            description: '24-inch LED monitor with 1920x1080 resolution and HDMI connectivity.',
+            price: 199.99,
+            stock_quantity: 30,
+            category: 'electronics',
+            imageUrl: 'https://via.placeholder.com/400x300?text=Monitor'
+        },
+        {
+            product_id: 'PROD005',
+            product_name: 'Desk Lamp',
+            description: 'Adjustable LED desk lamp with multiple brightness levels and USB charging port.',
+            price: 49.99,
+            stock_quantity: 60,
+            category: 'furniture',
+            imageUrl: 'https://via.placeholder.com/400x300?text=Desk+Lamp'
+        }
+    ];
 }

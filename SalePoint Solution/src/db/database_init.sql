@@ -2,8 +2,8 @@
 -- This script creates the necessary tables for the SalePoint Solution in Amazon RDS MySQL
 
 -- Create database if it doesn't exist
-CREATE DATABASE IF NOT EXISTS salepoint_db;
-USE salepoint_db;
+CREATE DATABASE IF NOT EXISTS salepointdb;
+USE salepointdb;
 
 -- Drop tables if they exist to ensure clean setup
 DROP TABLE IF EXISTS sales_products;

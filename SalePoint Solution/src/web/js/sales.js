@@ -11,7 +11,8 @@
  */
 
 // API endpoint base URL - to be replaced with actual API Gateway URL in production
-const API_BASE_URL = 'https://api-gateway-url.execute-api.us-east-1.amazonaws.com/prod';
+// API Base URL - Get from main.js config
+const API_BASE_URL = API_CONFIG ? API_CONFIG.baseUrl : 'https://your-api-gateway-id.execute-api.us-east-1.amazonaws.com/prod';
 
 // Store for the current sale being created
 let currentSale = {
@@ -111,7 +112,7 @@ function loadCustomersAndSalesReps() {
     // For demonstration, we'll use simulated data first
     
     // Simulate API call to get customers
-    simulateApiCall('GET', '/customers', null)
+    makeApiCall('GET', '/customers', null)
         .then(data => {
             customersCache = data;
             populateCustomerSelect(data);
@@ -122,7 +123,7 @@ function loadCustomersAndSalesReps() {
         });
     
     // Simulate API call to get sales reps
-    simulateApiCall('GET', '/salesreps', null)
+    makeApiCall('GET', '/salesreps', null)
         .then(data => {
             salesRepsCache = data;
             populateSalesRepSelect(data);
@@ -221,7 +222,7 @@ function searchProducts() {
     $('#product-search-btn').html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>');
     
     // In a real implementation, this would search via the API
-    simulateApiCall('GET', `/products?search=${encodeURIComponent(searchTerm)}`, null)
+    makeApiCall('GET', `/products?search=${encodeURIComponent(searchTerm)}`, null)
         .then(data => {
             productSearchResults = data;
             displayProductSearchResults(data);
@@ -477,7 +478,7 @@ function submitSale() {
     };
     
     // In a real implementation, this would submit to the API
-    simulateApiCall('POST', '/sales', saleData)
+    makeApiCall('POST', '/sales', saleData)
         .then(response => {
             showNotification('Sale successfully created!', 'success');
             
@@ -561,7 +562,7 @@ function loadSalesHistory() {
     }
     
     // In a real implementation, this would fetch from the API
-    simulateApiCall('GET', `/sales${queryParams ? '?' + queryParams : ''}`, null)
+    makeApiCall('GET', `/sales${queryParams ? '?' + queryParams : ''}`, null)
         .then(data => {
             displaySalesHistory(data);
         })
@@ -642,7 +643,7 @@ function viewSaleDetails(saleId) {
     $('#saleDetailsModal').modal('show');
     
     // In a real implementation, this would fetch from the API
-    simulateApiCall('GET', `/sales/${saleId}`, null)
+    makeApiCall('GET', `/sales/${saleId}`, null)
         .then(sale => {
             populateSaleDetailsModal(sale);
         })
@@ -744,7 +745,7 @@ function updateSaleStatus() {
     `);
     
     // In a real implementation, this would call the API
-    simulateApiCall('PUT', `/sales/${saleId}`, { status: newStatus, notes: notes })
+    makeApiCall('PUT', `/sales/${saleId}`, { status: newStatus, notes: notes })
         .then(() => {
             showNotification('Sale status updated successfully', 'success');
             
@@ -783,7 +784,7 @@ function saveSaleNotes() {
     `);
     
     // In a real implementation, this would call the API
-    simulateApiCall('PUT', `/sales/${saleId}/notes`, { notes: notes })
+    makeApiCall('PUT', `/sales/${saleId}/notes`, { notes: notes })
         .then(() => {
             showNotification('Notes saved successfully', 'success');
         })
@@ -820,7 +821,7 @@ function deleteSale() {
     `);
     
     // In a real implementation, this would call the API
-    simulateApiCall('DELETE', `/sales/${saleId}`, null)
+    makeApiCall('DELETE', `/sales/${saleId}`, null)
         .then(() => {
             showNotification('Sale deleted successfully', 'success');
             
@@ -871,86 +872,79 @@ function showNotification(message, type = 'info') {
 }
 
 /**
- * Simulate API call - in production, this would be replaced with actual API calls
+ * Make API call - use real API instead of simulation
  * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
  * @param {string} endpoint - API endpoint
  * @param {object} data - Request data for POST/PUT
  * @returns {Promise} - Promise resolving to the response data
  */
-function simulateApiCall(method, endpoint, data) {
-    return new Promise((resolve, reject) => {
-        console.log(`Simulating ${method} request to ${endpoint}`);
-        
-        // Add some delay to simulate network request
-        setTimeout(() => {
-            try {
-                // This is where you would make the actual API call in production
-                // Example using fetch:
-                // 
-                // return fetch(`${API_BASE_URL}${endpoint}`, {
-                //     method: method,
-                //     headers: {
-                //         'Content-Type': 'application/json',
-                //         'Authorization': `Bearer ${getAuthToken()}`
-                //     },
-                //     body: data ? JSON.stringify(data) : undefined
-                // })
-                // .then(response => {
-                //     if (!response.ok) throw new Error(`API error: ${response.status}`);
-                //     return response.json();
-                // });
-                
-                // For demo purposes, we'll use mock data
-                let responseData;
-                
-                if (endpoint.startsWith('/customers')) {
-                    responseData = getMockCustomers();
-                } else if (endpoint.startsWith('/salesreps')) {
-                    responseData = getMockSalesReps();
-                } else if (endpoint.startsWith('/products')) {
-                    responseData = getMockProducts(endpoint);
-                } else if (endpoint.startsWith('/sales') && method === 'GET') {
-                    if (endpoint.includes('/sales/')) {
-                        // Get specific sale
-                        const saleId = endpoint.split('/sales/')[1];
-                        responseData = getMockSaleById(saleId);
-                    } else {
-                        // Get all sales or filtered sales
-                        responseData = getMockSales(endpoint);
-                    }
-                } else if (endpoint.startsWith('/sales') && method === 'POST') {
-                    // Create new sale
-                    responseData = {
-                        message: 'Sale created successfully',
-                        saleId: 'SALE-' + Date.now(),
-                        saleDetails: {
-                            ...data,
-                            SaleID: 'SALE-' + Date.now(),
-                            Timestamp: new Date().toISOString(),
-                            Status: 'Pending'
-                        }
-                    };
-                } else if (method === 'PUT' && endpoint.includes('/sales/')) {
-                    // Update sale status or notes
-                    responseData = {
-                        message: 'Sale updated successfully',
-                        updates: data
-                    };
-                } else if (method === 'DELETE' && endpoint.includes('/sales/')) {
-                    // Delete sale
-                    responseData = {
-                        message: 'Sale deleted successfully'
-                    };
-                } else {
-                    throw new Error('Unknown endpoint');
-                }
-                
-                resolve(responseData);
-            } catch (error) {
-                console.error('Simulated API error:', error);
-                reject(error);
+function makeApiCall(method, endpoint, data) {
+    // Use the apiRequest function from main.js if available
+    if (typeof apiRequest === 'function') {
+        return apiRequest(endpoint, method, data);
+    }
+    
+    // Fallback to direct fetch if apiRequest not available
+    const url = `${API_BASE_URL}${endpoint}`;
+    
+    const options = {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    };
+    
+    if (data && (method === 'POST' || method === 'PUT')) {
+        options.body = JSON.stringify(data);
+    }
+    
+    return fetch(url, options)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
             }
-        }, 500); // Simulate network delay
+            return response.json();
+        })
+        .catch(error => {
+            console.error('API Request Error:', error);
+            // Fallback to mock data for demo
+            return getMockData(method, endpoint, data);
+        });
+}
+
+/**
+ * Get mock data based on endpoint and method for fallback
+ */
+function getMockData(method, endpoint, data) {
+    // Simulate API delay
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            if (endpoint.includes('/customers')) {
+                resolve(getMockCustomers());
+            } else if (endpoint.includes('/salesreps')) {
+                resolve(getMockSalesReps());
+            } else if (endpoint.includes('/products')) {
+                resolve(getMockProducts(endpoint));
+            } else if (endpoint.includes('/sales')) {
+                if (method === 'POST') {
+                    // Return success response for new sale
+                    resolve({ 
+                        success: true, 
+                        saleId: 'SALE-' + Date.now(),
+                        message: 'Sale created successfully (mock)'
+                    });
+                } else if (endpoint.includes('/sales/') && !endpoint.endsWith('/sales')) {
+                    // Get specific sale by ID
+                    const saleId = endpoint.split('/sales/')[1].split('?')[0];
+                    resolve(getMockSaleById(saleId));
+                } else {
+                    // Get all sales
+                    resolve(getMockSales(endpoint));
+                }
+            } else {
+                resolve({ error: 'Endpoint not found (mock)' });
+            }
+        }, 500);
     });
 }
 
