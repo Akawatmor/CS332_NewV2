@@ -1,3 +1,5 @@
+#!/usr/bin/env pwsh
+
 # SalePoint Solution - AWS Learner Lab Deployment Script
 # Optimized for AWS Academy Learner Lab environment with specific constraints and error handling
 

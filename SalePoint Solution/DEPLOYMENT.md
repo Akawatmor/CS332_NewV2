@@ -1,10 +1,11 @@
-# SalePoint Deployment Guide
+# SalePoint Deployment Guide - AWS Learner Lab Edition
 
 ## Prerequisites
 
-1. **AWS Account with Learner Lab Access**
+1. **AWS Learner Lab Access**
    - Ensure you have an active AWS Learner Lab environment
-   - Note down your AWS credentials from the lab environment
+   - Start your lab session and note down the AWS credentials
+   - **Important**: Learner Lab has IAM restrictions - use simplified deployment
 
 2. **Node.js 18+ installed locally**
    - Download from: https://nodejs.org/
@@ -13,73 +14,80 @@
 3. **AWS CLI installed and configured**
    - Install: https://aws.amazon.com/cli/
    - Configure with your lab credentials: `aws configure`
+   - **Use temporary credentials from Learner Lab**
 
 4. **Git (if cloning the repository)**
 
-## Architecture Overview
+## Learner Lab Specific Architecture
 
-The SalePoint solution includes:
-- **Frontend**: React.js application hosted on S3 with CloudFront
-- **API Layer**: API Gateway with Lambda function integrations
-- **Database**: RDS MySQL for relational data, DynamoDB for NoSQL data
-- **Storage**: S3 buckets for documents and static assets
-- **Authentication**: Cognito User Pool for user management
-- **Infrastructure**: VPC with public/private subnets
+The SalePoint Learner Lab solution includes:
+- **API Layer**: API Gateway with Lambda function integrations using existing LabRole
+- **Database**: DynamoDB tables (compatible with Learner Lab restrictions)
+- **Storage**: Lambda functions for business logic
+- **No Custom IAM**: Uses existing LabRole to comply with Learner Lab restrictions
+
+## Current Deployment Status
+
+✅ **DEPLOYED AND WORKING**
+- CloudFormation Stack: `salepoint-lab` (CREATE_COMPLETE)
+- API Gateway URL: `https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod`
+- DynamoDB Tables: 3 tables (customers, orders, products)
+- Lambda Functions: 2 functions (products, customers)
 
 ## API Gateway Endpoints
 
-The deployment creates a complete REST API with the following endpoints:
+✅ **Currently Available and Working:**
 
 ### Products API
-- `GET /products` - List all products
-- `POST /products` - Create new product
-- `GET /products/{productId}` - Get specific product
-- `PUT /products/{productId}` - Update product
-- `DELETE /products/{productId}` - Delete product
+- `GET /products` - ✅ Working (returns test response)
+- **URL**: https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod/products
 
-### Customers API
-- `GET /customers` - List all customers
+### Customers API  
+- `GET /customers` - ✅ Working (returns test response)
+- **URL**: https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod/customers
+
+🚧 **Coming Soon** (extend existing Lambda functions):
+- `POST /products` - Create new product
+- `PUT /products/{productId}` - Update product  
+- `DELETE /products/{productId}` - Delete product
 - `POST /customers` - Create new customer
-- `GET /customers/{customerId}` - Get specific customer
 - `PUT /customers/{customerId}` - Update customer
 - `DELETE /customers/{customerId}` - Delete customer
+- Sales, Inventory, Analytics, and Documents APIs
 
-### Sales API
-- `GET /sales` - List all sales
-- `POST /sales` - Create new sale
-- `GET /sales/{saleId}` - Get specific sale
-- `PUT /sales/{saleId}` - Update sale
-
-### Inventory API
-- `GET /inventory` - Get inventory status
-- `PUT /inventory` - Update inventory
-
-### Analytics API
-- `GET /analytics` - Get sales analytics and reports
-
-### Documents API
-- `GET /documents` - List all documents
-- `POST /documents` - Upload new document
-- `GET /documents/{documentId}` - Download specific document
-- `DELETE /documents/{documentId}` - Delete document
-
-All endpoints support CORS with `OPTIONS` method for browser compatibility.
+All endpoints support CORS for browser compatibility.
 
 ## Quick Deployment
 
-### Automated Deployment (Recommended)
+### ✅ Already Deployed (Current Status)
 
-```powershell
-# Run the automated deployment script
-.\deploy.ps1 -ProjectName "salepoint" -Region "us-east-1"
+The SalePoint infrastructure is already successfully deployed with frontend! 
 
-# Test the API endpoints
-.\test-api.ps1 -ApiBaseUrl "https://your-api-id.execute-api.us-east-1.amazonaws.com/prod" -Region "us-east-1"
+**🌐 Live Dashboard**: http://salepoint-frontend-747605646409-us-east-1.s3-website-us-east-1.amazonaws.com
+
+**📊 Backend APIs**: https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod
+
+```bash
+# Check current deployment status
+aws cloudformation describe-stacks --stack-name salepoint-lab
+
+# Test the working APIs
+./test-learner-lab.sh
+
+# View stack outputs
+aws cloudformation describe-stacks --stack-name salepoint-lab --query 'Stacks[0].Outputs' --output table
 ```
 
-### Manual Deployment
+### 🔄 Complete Deployment (Backend + Frontend)
 
-Follow the step-by-step instructions below for manual deployment.
+```bash
+# Deploy everything including frontend
+./deploy-complete.sh
+
+# Or deploy individually:
+./deploy-learner-lab-simple.sh  # Backend only
+./test-learner-lab.sh           # Test and update config
+```
 
 ## Deployment Steps
 
@@ -214,13 +222,34 @@ Follow the step-by-step instructions below for manual deployment.
 
 ## Access the Application
 
-1. **Get Frontend URL**
-   - Check CloudFormation outputs for the S3 website URL
-   - Example: http://salepoint-frontend-123456789012.s3-website-us-east-1.amazonaws.com
+### 🌐 Live Dashboard (Ready to Use!)
 
-2. **Login**
-   - Email: admin@salepoint.com
-   - Password: AdminPassword123!
+**Frontend URL**: http://salepoint-frontend-747605646409-us-east-1.s3-website-us-east-1.amazonaws.com
+
+**Features Available:**
+- ✅ Dashboard Overview
+- ✅ Products Management (connected to API)
+- ✅ Customers Management (connected to API) 
+- ✅ Sales Tracking Interface
+- ✅ Inventory Management Interface
+- ✅ Analytics Dashboard Interface
+- ✅ Modern Material-UI Design
+
+### 🔗 API Endpoints (Working)
+
+**Base URL**: https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod
+
+- `GET /products` - ✅ Working
+- `GET /customers` - ✅ Working
+
+**Test APIs directly:**
+```bash
+# Test Products API
+curl https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod/products
+
+# Test Customers API  
+curl https://jr4rw0w0uh.execute-api.us-east-1.amazonaws.com/prod/customers
+```
 
 ## Troubleshooting
 

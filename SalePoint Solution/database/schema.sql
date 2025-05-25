@@ -2,8 +2,8 @@
 -- MySQL database schema for the Sale Point application
 
 -- Create database
-CREATE DATABASE IF NOT EXISTS salepoint;
-USE salepoint;
+CREATE DATABASE IF NOT EXISTS salepoint_db;
+USE salepoint_db;
 
 -- Products table
 CREATE TABLE products (

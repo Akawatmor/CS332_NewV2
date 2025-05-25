@@ -9,8 +9,8 @@ Parameters:
   
   Environment:
     Type: String
-    Default: 'dev'
-    AllowedValues: ['dev', 'staging', 'prod']
+    # Default: 'dev'
+    # AllowedValues: ['dev', 'staging', 'prod', 'learnerlab']
     Description: 'Environment name'
 
 Resources:
@@ -290,7 +290,7 @@ Resources:
   Database:
     Type: AWS::RDS::DBInstance
     Properties:
-      DBInstanceIdentifier: !Sub '${ProjectName}-database'
+      DBInstanceIdentifier: salepoint-db
       DBInstanceClass: db.t3.micro
       Engine: mysql
       EngineVersion: '8.0.35'
@@ -384,7 +384,7 @@ Resources:
       Environment:
         Variables:
           DB_HOST: !GetAtt Database.Endpoint.Address
-          DB_NAME: salepoint
+          DB_NAME: salepoint_db
           DB_USER: admin
           DB_PASSWORD: 'SalePoint123!'
       VpcConfig:
@@ -440,7 +440,7 @@ Resources:
       Environment:
         Variables:
           DB_HOST: !GetAtt Database.Endpoint.Address
-          DB_NAME: salepoint
+          DB_NAME: salepoint_db
           DB_USER: admin
           DB_PASSWORD: 'SalePoint123!'
           ORDERS_TABLE: !Ref OrdersTable
@@ -473,7 +473,7 @@ Resources:
       Environment:
         Variables:
           DB_HOST: !GetAtt Database.Endpoint.Address
-          DB_NAME: salepoint
+          DB_NAME: salepoint_db
           DB_USER: admin
           DB_PASSWORD: 'SalePoint123!'
       VpcConfig:
@@ -505,11 +505,12 @@ Resources:
       Environment:
         Variables:
           DB_HOST: !GetAtt Database.Endpoint.Address
-          DB_NAME: salepoint
+          DB_NAME: salepoint_db
           DB_USER: admin
           DB_PASSWORD: 'SalePoint123!'
           CUSTOMERS_TABLE: !Ref CustomersTable
-          ORDERS_TABLE: !Ref OrdersTable      VpcConfig:
+          ORDERS_TABLE: !Ref OrdersTable
+      VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
         SubnetIds:
@@ -538,7 +539,7 @@ Resources:
       Environment:
         Variables:
           DB_HOST: !GetAtt Database.Endpoint.Address
-          DB_NAME: salepoint
+          DB_NAME: salepoint_db
           DB_USER: admin
           DB_PASSWORD: 'SalePoint123!'
           DOCUMENTS_BUCKET: !Ref DocumentBucket

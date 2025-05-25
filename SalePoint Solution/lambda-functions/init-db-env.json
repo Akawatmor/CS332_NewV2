@@ -1,0 +1,8 @@
+{
+  "Variables": {
+    "DB_HOST": "salepoint-db.cdtkcf7qlbd7.us-east-1.rds.amazonaws.com",
+    "DB_NAME": "salepoint_db",
+    "DB_USER": "admin",
+    "DB_PASSWORD": "SalePoint123!"
+  }
+}

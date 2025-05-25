@@ -1,7 +1,7 @@
 -- Sample Data for Sale Point Application
 -- Run this after creating the main schema
 
-USE salepoint;
+USE salepoint_db;
 
 -- Insert sample categories
 INSERT INTO categories (name, description) VALUES

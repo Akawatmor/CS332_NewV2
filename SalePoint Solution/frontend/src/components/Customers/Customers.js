@@ -65,8 +65,10 @@ function Customers({ userRole }) {
       };
       
       const response = await apiService.getCustomers(params);
-      setCustomers(response.customers || []);
-      setTotalPages(Math.ceil((response.total || 0) / pageSize));
+      // Handle DynamoDB response format
+      const customersData = response.customers || response || [];
+      setCustomers(Array.isArray(customersData) ? customersData : []);
+      setTotalPages(Math.ceil((response.count || customersData.length || 0) / pageSize));
       setError(null);
     } catch (err) {
       console.error('Error loading customers:', err);

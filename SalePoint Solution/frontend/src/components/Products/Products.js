@@ -70,8 +70,10 @@ function Products({ userRole }) {
       };
       
       const response = await apiService.getProducts(params);
-      setProducts(response.products || []);
-      setTotalPages(Math.ceil((response.total || 0) / pageSize));
+      // Handle DynamoDB response format
+      const productsData = response.products || response || [];
+      setProducts(Array.isArray(productsData) ? productsData : []);
+      setTotalPages(Math.ceil((response.count || productsData.length || 0) / pageSize));
       setError(null);
     } catch (err) {
       console.error('Error loading products:', err);
@@ -84,7 +86,9 @@ function Products({ userRole }) {
   const loadCategories = async () => {
     try {
       const response = await apiService.getProducts({ groupBy: 'category' });
-      const uniqueCategories = [...new Set(response.products?.map(p => p.category).filter(Boolean) || [])];
+      // Handle DynamoDB response format
+      const productsData = response.products || response || [];
+      const uniqueCategories = [...new Set(productsData.map(p => p.category).filter(Boolean) || [])];
       setCategories(uniqueCategories);
     } catch (err) {
       console.error('Error loading categories:', err);
@@ -129,7 +133,9 @@ function Products({ userRole }) {
       if (dialogMode === 'add') {
         await apiService.createProduct(selectedProduct);
       } else if (dialogMode === 'edit') {
-        await apiService.updateProduct(selectedProduct.id, selectedProduct);
+        // Use productId for DynamoDB
+        const productId = selectedProduct.productId || selectedProduct.id;
+        await apiService.updateProduct(productId, selectedProduct);
       }
       setDialogOpen(false);
       loadProducts();
@@ -311,7 +317,7 @@ function Products({ userRole }) {
                       </IconButton>
                       <IconButton
                         size="small"
-                        onClick={() => handleDeleteProduct(product.id)}
+                        onClick={() => handleDeleteProduct(product.productId || product.id)}
                         color="error"
                       >
                         <DeleteIcon />

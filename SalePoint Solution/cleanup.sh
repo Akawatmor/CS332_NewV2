@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# SalePoint Solution - Cleanup Script (Bash Version)
-# Removes all AWS resources created by the deployment script
+# SalePoint Solution - COMPLETE CLEANUP Script
+# ⚠️  WARNING: This will DELETE EVERYTHING - you must start from Step 1 to redeploy
+# Removes ALL AWS resources and local files created by the SalePoint deployment
 
 # Parameters
 PROJECT_NAME="${1:-salepoint-lab}"
@@ -35,11 +36,24 @@ fi
 echo -e "\033[33m"
 cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║                SalePoint Solution - Resource Cleanup            ║
-║                   AWS Learner Lab Safe Cleanup                  ║
+║                SalePoint Solution - COMPLETE CLEANUP            ║
+║              ⚠️  THIS WILL DELETE EVERYTHING ⚠️                ║
+║           You will need to start from Step 1 to redeploy       ║
 ╚══════════════════════════════════════════════════════════════════╝
 EOF
 echo -e "\033[0m"
+
+print_error "🚨 CRITICAL WARNING 🚨"
+print_error "This script will DELETE ALL SalePoint resources:"
+print_error "  • CloudFormation stacks"
+print_error "  • S3 buckets and all files"
+print_error "  • Lambda functions" 
+print_error "  • API Gateway APIs"
+print_error "  • DynamoDB tables"
+print_error "  • Local deployment files"
+print_error "  • Frontend build files"
+print_error ""
+print_warning "After running this cleanup, you must follow COMPLETE.md from Step 1 to redeploy!"
 
 print_info "Project Name: $PROJECT_NAME"
 print_info "Region: $REGION"
@@ -48,15 +62,27 @@ print_info "Force Delete: $FORCE_DELETE"
 # Confirmation unless forced
 if [[ "$FORCE_DELETE" != "true" ]]; then
     echo
-    print_warning "This will delete ALL AWS resources created by the SalePoint deployment."
-    print_warning "This action cannot be undone."
+    print_warning "⚠️  FINAL WARNING: This will DELETE EVERYTHING related to SalePoint!"
+    print_warning "⚠️  You will need to redeploy from scratch using COMPLETE.md Step 1"
+    print_warning "⚠️  This action CANNOT be undone!"
     echo
-    read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+    print_error "Resources that will be PERMANENTLY DELETED:"
+    print_error "  ❌ All AWS infrastructure (APIs, databases, functions)"
+    print_error "  ❌ All uploaded files and data"
+    print_error "  ❌ Frontend website and builds"
+    print_error "  ❌ Configuration files"
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Cleanup cancelled by user"
+    read -p "❓ Are you ABSOLUTELY SURE you want to delete everything? Type 'DELETE' to confirm: " -r
+    echo
+    if [[ "$REPLY" != "DELETE" ]]; then
+        print_success "✅ Cleanup cancelled - your resources are safe!"
+        print_info "💡 To clean up properly, type exactly: DELETE"
         exit 0
     fi
+    echo
+    print_warning "🔥 Proceeding with COMPLETE DELETION in 5 seconds..."
+    print_warning "🔥 Press Ctrl+C NOW to cancel!"
+    sleep 5
 fi
 
 # Load deployment info if available
@@ -175,19 +201,52 @@ else
     print_info "No orphaned API Gateway APIs found"
 fi
 
-# Step 4: Clean up local files
-print_step "Cleaning Up Local Files"
+# Step 4: Complete local cleanup
+print_step "COMPLETE Local File Cleanup"
+
+print_info "Removing ALL deployment artifacts and build files..."
 
 # Remove deployment artifacts
-LOCAL_FILES=("deployments/" "deployment-info.json")
+LOCAL_FILES=(
+    "deployments/" 
+    "deployment-info.json"
+    "frontend/build/"
+    "frontend/node_modules/"
+    "frontend/.env"
+    "frontend/src/index-auth.js.backup"
+    "frontend/src/App-auth.js.backup"
+    "frontend/src/aws-config.js.backup"
+    ".aws-sam/"
+    "samconfig.toml"
+    "*.log"
+    "deployment-*.json"
+    "stack-outputs.json"
+)
 
 for FILE in "${LOCAL_FILES[@]}"; do
     if [[ -e "$FILE" ]]; then
-        print_info "Removing local file/directory: $FILE"
+        print_info "Removing: $FILE"
         rm -rf "$FILE"
         print_success "✓ Removed $FILE"
     fi
 done
+
+# Reset frontend configuration to default
+print_info "Resetting frontend configuration..."
+if [[ -f "frontend/src/config/aws-config.js.backup" ]]; then
+    cp "frontend/src/config/aws-config.js.backup" "frontend/src/config/aws-config.js"
+    print_success "✓ Reset aws-config.js to default"
+fi
+
+# Clean npm cache if possible
+if command -v npm &> /dev/null; then
+    print_info "Cleaning npm cache..."
+    cd frontend && npm cache clean --force 2>/dev/null || true
+    cd ..
+    print_success "✓ Cleaned npm cache"
+fi
+
+print_success "✅ Complete local cleanup finished!"
 
 # Step 5: Final verification
 print_step "Final Verification"
@@ -217,35 +276,49 @@ else
 fi
 
 # Display cleanup summary
-print_step "Cleanup Summary"
+print_step "COMPLETE CLEANUP SUMMARY"
 
 cat << EOF
 
 ╔══════════════════════════════════════════════════════════════════╗
-║                     CLEANUP COMPLETED                           ║
+║                 🚨 COMPLETE DELETION FINISHED 🚨                ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-✅ CloudFormation stack deletion initiated/completed
-✅ S3 buckets emptied
-✅ Orphaned Lambda functions removed
-✅ Orphaned API Gateway APIs removed
-✅ Local deployment files cleaned up
+🔥 EVERYTHING HAS BEEN DELETED:
+   ✅ CloudFormation stacks deleted
+   ✅ S3 buckets emptied and deleted
+   ✅ Lambda functions removed
+   ✅ API Gateway APIs removed
+   ✅ DynamoDB tables deleted
+   ✅ Frontend builds deleted
+   ✅ Local configuration reset
+   ✅ Deployment artifacts removed
+
+🔄 TO REDEPLOY SALEPOINT:
+   1. Open COMPLETE.md
+   2. Follow Step 1: Navigate to project directory
+   3. Follow Step 2: Run complete deployment
+   4. Follow Step 3: Access your new application
 
 💡 Learner Lab Notes:
-   • Resource deletion may take several minutes to complete
-   • Check the CloudFormation console to verify stack deletion
-   • Some resources may require manual deletion if they have dependencies
-   • Your Learner Lab credits should stop being consumed once resources are deleted
+   • All resources have been deleted - no more credit usage
+   • Your Learner Lab environment is now clean
+   • You can safely restart deployment from scratch
+   • Check AWS console to verify all resources are gone
 
-🔍 To verify complete cleanup:
-   • Check CloudFormation console for remaining stacks
-   • Check S3 console for remaining buckets
-   • Check Lambda console for remaining functions
+📁 Next Steps:
+   chmod +x deploy-complete.sh
+   ./deploy-complete.sh
 
 EOF
 
-print_success "SalePoint Solution cleanup completed!"
+print_success "🎉 SalePoint Solution COMPLETELY REMOVED!"
+print_warning "🔄 To redeploy, start from COMPLETE.md Step 1"
 
 if [[ -n "$REMAINING_STACKS" || -n "$REMAINING_BUCKETS" ]]; then
-    print_warning "\n⚠️  Some resources may still exist. Please check the AWS console and delete manually if needed."
+    print_warning "\n⚠️  If any resources remain, check AWS console and delete manually."
+    print_info "💡 Some resources may take a few minutes to fully delete."
 fi
+
+echo
+print_info "🚀 Ready for fresh deployment! Check COMPLETE.md for instructions."
