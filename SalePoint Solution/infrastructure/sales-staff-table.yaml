@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Add missing SalesStaff table to existing SalePoint infrastructure'
+
+Resources:
+  SalesStaffTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: salepoint-sales-staff
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: staffId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: staffId
+          KeyType: HASH
+
+Outputs:
+  SalesStaffTableName:
+    Description: DynamoDB Sales Staff Table Name
+    Value: !Ref SalesStaffTable
+    Export:
+      Name: salepoint-sales-staff-table

@@ -1,0 +1,519 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SalePoint AWS Infrastructure - Learner Lab Compatible (No S3 Policy)'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'salepoint'
+    Description: 'Project name prefix for all resources'
+
+Resources:
+  # DynamoDB Tables
+  CustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-customers'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-orders'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-products'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: productId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: productId
+          KeyType: HASH
+
+  SalesStaffTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-sales-staff'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: staffId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: staffId
+          KeyType: HASH
+
+  # Lambda Functions using LabRole
+  ProductsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-products'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Environment:
+        Variables:
+          PRODUCTS_TABLE: !Ref ProductsTable
+          CUSTOMERS_TABLE: !Ref CustomersTable
+          ORDERS_TABLE: !Ref OrdersTable
+          SALES_STAFF_TABLE: !Ref SalesStaffTable
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const dynamodb = new AWS.DynamoDB.DocumentClient();
+          
+          exports.handler = async (event) => {
+            console.log('Event:', JSON.stringify(event, null, 2));
+            
+            const headers = {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+              'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            };
+            
+            if (event.httpMethod === 'OPTIONS') {
+              return { statusCode: 200, headers, body: '' };
+            }
+            
+            try {
+              const tableName = process.env.PRODUCTS_TABLE;
+              
+              if (event.httpMethod === 'GET') {
+                const result = await dynamodb.scan({ TableName: tableName }).promise();
+                return {
+                  statusCode: 200,
+                  headers,
+                  body: JSON.stringify({
+                    products: result.Items || [],
+                    count: result.Count || 0
+                  })
+                };
+              }
+              
+              if (event.httpMethod === 'POST') {
+                const body = JSON.parse(event.body || '{}');
+                const item = {
+                  productId: `prod_${Date.now()}`,
+                  name: body.name || 'Sample Product',
+                  price: body.price || 29.99,
+                  category: body.category || 'General',
+                  stock: body.stock || 100,
+                  createdAt: new Date().toISOString()
+                };
+                
+                await dynamodb.put({ TableName: tableName, Item: item }).promise();
+                return {
+                  statusCode: 201,
+                  headers,
+                  body: JSON.stringify(item)
+                };
+              }
+              
+              return {
+                statusCode: 405,
+                headers,
+                body: JSON.stringify({ error: 'Method not allowed' })
+              };
+              
+            } catch (error) {
+              console.error('Error:', error);
+              return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ error: error.message })
+              };
+            }
+          };
+
+  CustomersFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-customers'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Ref CustomersTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          SALES_STAFF_TABLE: !Ref SalesStaffTable
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const dynamodb = new AWS.DynamoDB.DocumentClient();
+          
+          exports.handler = async (event) => {
+            console.log('Event:', JSON.stringify(event, null, 2));
+            
+            const headers = {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+              'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            };
+            
+            if (event.httpMethod === 'OPTIONS') {
+              return { statusCode: 200, headers, body: '' };
+            }
+            
+            try {
+              const tableName = process.env.CUSTOMERS_TABLE;
+              
+              if (event.httpMethod === 'GET') {
+                const result = await dynamodb.scan({ TableName: tableName }).promise();
+                return {
+                  statusCode: 200,
+                  headers,
+                  body: JSON.stringify({
+                    customers: result.Items || [],
+                    count: result.Count || 0
+                  })
+                };
+              }
+              
+              if (event.httpMethod === 'POST') {
+                const body = JSON.parse(event.body || '{}');
+                const item = {
+                  customerId: `cust_${Date.now()}`,
+                  name: body.name || 'Sample Customer',
+                  email: body.email || 'customer@example.com',
+                  phone: body.phone || '555-0123',
+                  address: body.address || '123 Main St',
+                  createdAt: new Date().toISOString()
+                };
+                
+                await dynamodb.put({ TableName: tableName, Item: item }).promise();
+                return {
+                  statusCode: 201,
+                  headers,
+                  body: JSON.stringify(item)
+                };
+              }
+              
+              return {
+                statusCode: 405,
+                headers,
+                body: JSON.stringify({ error: 'Method not allowed' })
+              };
+              
+            } catch (error) {
+              console.error('Error:', error);
+              return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ error: error.message })
+              };
+            }
+          };
+
+  OrdersFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-orders'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+          CUSTOMERS_TABLE: !Ref CustomersTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+          SALES_STAFF_TABLE: !Ref SalesStaffTable
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const dynamodb = new AWS.DynamoDB.DocumentClient();
+          
+          exports.handler = async (event) => {
+            console.log('Event:', JSON.stringify(event, null, 2));
+            
+            const headers = {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+              'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            };
+            
+            if (event.httpMethod === 'OPTIONS') {
+              return { statusCode: 200, headers, body: '' };
+            }
+            
+            try {
+              const tableName = process.env.ORDERS_TABLE;
+              
+              if (event.httpMethod === 'GET') {
+                const result = await dynamodb.scan({ TableName: tableName }).promise();
+                return {
+                  statusCode: 200,
+                  headers,
+                  body: JSON.stringify({
+                    orders: result.Items || [],
+                    count: result.Count || 0
+                  })
+                };
+              }
+              
+              if (event.httpMethod === 'POST') {
+                const body = JSON.parse(event.body || '{}');
+                const item = {
+                  orderId: `order_${Date.now()}`,
+                  customerId: body.customerId || 'cust_sample',
+                  products: body.products || [],
+                  total: body.total || 0,
+                  status: body.status || 'pending',
+                  createdAt: new Date().toISOString()
+                };
+                
+                await dynamodb.put({ TableName: tableName, Item: item }).promise();
+                return {
+                  statusCode: 201,
+                  headers,
+                  body: JSON.stringify(item)
+                };
+              }
+              
+              return {
+                statusCode: 405,
+                headers,
+                body: JSON.stringify({ error: 'Method not allowed' })
+              };
+              
+            } catch (error) {
+              console.error('Error:', error);
+              return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ error: error.message })
+              };
+            }
+          };
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-api'
+      Description: 'SalePoint API Gateway'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resources
+  ProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: 'products'
+
+  CustomersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: 'customers'
+
+  OrdersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: 'orders'
+
+  # API Gateway Methods
+  ProductsMethodGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  ProductsMethodPost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  ProductsMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  CustomersMethodGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  CustomersMethodPost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  CustomersMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  OrdersMethodGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref OrdersResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrdersFunction.Arn}/invocations'
+
+  OrdersMethodPost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref OrdersResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrdersFunction.Arn}/invocations'
+
+  OrdersMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref OrdersResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrdersFunction.Arn}/invocations'
+
+  # Lambda Permissions
+  ProductsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProductsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  CustomersLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CustomersFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  OrdersLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref OrdersFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ProductsMethodGet
+      - ProductsMethodPost
+      - ProductsMethodOptions
+      - CustomersMethodGet
+      - CustomersMethodPost
+      - CustomersMethodOptions
+      - OrdersMethodGet
+      - OrdersMethodPost
+      - OrdersMethodOptions
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: 'prod'
+
+Outputs:
+  ApiUrl:
+    Description: 'API Gateway URL'
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiUrl'
+
+  CustomersTableName:
+    Description: 'DynamoDB Customers Table Name'
+    Value: !Ref CustomersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomersTable'
+
+  ProductsTableName:
+    Description: 'DynamoDB Products Table Name'
+    Value: !Ref ProductsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ProductsTable'
+
+  OrdersTableName:
+    Description: 'DynamoDB Orders Table Name'
+    Value: !Ref OrdersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-OrdersTable'
+
+  SalesStaffTableName:
+    Description: 'DynamoDB Sales Staff Table Name'
+    Value: !Ref SalesStaffTable
+    Export:
+      Name: !Sub '${AWS::StackName}-SalesStaffTable'

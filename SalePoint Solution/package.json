@@ -1,0 +1,11 @@
+{
+  "name": "salepoint-lambda-functions",
+  "version": "1.0.0",
+  "description": "Lambda functions for SalePoint",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1485.0",
+    "axios": "^1.9.0",
+    "uuid": "^9.0.0"
+  }
+}

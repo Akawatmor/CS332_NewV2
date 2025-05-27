@@ -1,0 +1,16 @@
+{
+  "name": "salepoint-inventory-lambda",
+  "version": "1.0.0",
+  "description": "Inventory Lambda function for SalePoint application",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.x",
+    "@aws-sdk/lib-dynamodb": "^3.x",
+    "uuid": "^9.0.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}

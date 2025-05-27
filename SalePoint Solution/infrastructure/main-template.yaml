@@ -1,0 +1,1196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Sale Point AWS Infrastructure - Complete serverless sales platform'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'salepoint'
+    Description: 'Project name prefix for all resources'
+  
+  Environment:
+    Type: String
+    # Default: 'dev'
+    # AllowedValues: ['dev', 'staging', 'prod', 'learnerlab']
+    Description: 'Environment name'
+
+Resources:
+  # VPC and Network Infrastructure
+  SalePointVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vpc'
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-igw'
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SalePointVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnets (for API Gateway and NAT)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SalePointVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-public-subnet-1'
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SalePointVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-public-subnet-2'
+
+  # Private Subnets (for Lambda and RDS)
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SalePointVPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-private-subnet-1'
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SalePointVPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-private-subnet-2'
+
+  # Database Subnets
+  DatabaseSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SalePointVPC
+      CidrBlock: 10.0.20.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-db-subnet-1'
+
+  DatabaseSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SalePointVPC
+      CidrBlock: 10.0.21.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-db-subnet-2'
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SalePointVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-public-rt'
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Groups
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-lambda-sg'
+      GroupDescription: 'Security group for Lambda functions'
+      VpcId: !Ref SalePointVPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-database-sg'
+      GroupDescription: 'Security group for RDS database'
+      VpcId: !Ref SalePointVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  # S3 Buckets
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-frontend-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${FrontendBucket}/*'
+
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-documents-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${ProjectName}-users'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: name
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: custom:role
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${ProjectName}-client'
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ADMIN_NO_SRP_AUTH
+        - USER_PASSWORD_AUTH
+
+  # DynamoDB Tables
+  CustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-customers'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: salesPersonId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: SalesPersonIndex
+          KeySchema:
+            - AttributeName: salesPersonId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-orders'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CustomerIndex
+          KeySchema:
+            - AttributeName: customerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-products'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: productId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: productId
+          KeyType: HASH
+
+  SalesStaffTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-sales-staff'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: staffId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: staffId
+          KeyType: HASH
+
+  # RDS Database
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub '${ProjectName}-db-subnet-group'
+      DBSubnetGroupDescription: 'Subnet group for Sale Point database'
+      SubnetIds:
+        - !Ref DatabaseSubnet1
+        - !Ref DatabaseSubnet2
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: salepoint-db
+      DBInstanceClass: db.t3.micro
+      Engine: mysql
+      EngineVersion: '8.0.35'
+      MasterUsername: admin
+      MasterUserPassword: 'SalePoint123!'
+      AllocatedStorage: 20
+      StorageType: gp2
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: false
+    DeletionPolicy: Delete
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt CustomersTable.Arn
+                  - !GetAtt OrdersTable.Arn
+                  - !Sub '${CustomersTable.Arn}/index/*'
+                  - !Sub '${OrdersTable.Arn}/index/*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub '${DocumentBucket}/*'
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Lambda Functions
+  ProductsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-products'
+      Runtime: nodejs18.x
+      Handler: products.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({ message: 'Products function placeholder' })
+            };
+          };
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_NAME: salepoint_db
+          DB_USER: admin
+          DB_PASSWORD: 'SalePoint123!'
+          PRODUCTS_TABLE: !Ref ProductsTable
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+  CustomersFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-customers'
+      Runtime: nodejs18.x
+      Handler: customers.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({ message: 'Customers function placeholder' })
+            };
+          };
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Ref CustomersTable
+          ORDERS_TABLE: !Ref OrdersTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+          SALES_STAFF_TABLE: !Ref SalesStaffTable
+
+  SalesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-sales'
+      Runtime: nodejs18.x
+      Handler: sales.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({ message: 'Sales function placeholder' })
+            };
+          };
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_NAME: salepoint_db
+          DB_USER: admin
+          DB_PASSWORD: 'SalePoint123!'
+          ORDERS_TABLE: !Ref OrdersTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+          SALES_STAFF_TABLE: !Ref SalesStaffTable
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+  InventoryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-inventory'
+      Runtime: nodejs18.x
+      Handler: inventory.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({ message: 'Inventory function placeholder' })
+            };
+          };
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_NAME: salepoint_db
+          DB_USER: admin
+          DB_PASSWORD: 'SalePoint123!'
+          PRODUCTS_TABLE: !Ref ProductsTable
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+  AnalyticsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-analytics'
+      Runtime: nodejs18.x
+      Handler: analytics.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({ message: 'Analytics function placeholder' })
+            };
+          };
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_NAME: salepoint_db
+          DB_USER: admin
+          DB_PASSWORD: 'SalePoint123!'
+          CUSTOMERS_TABLE: !Ref CustomersTable
+          ORDERS_TABLE: !Ref OrdersTable
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+  DocumentsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-documents'
+      Runtime: nodejs18.x
+      Handler: documents.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({ message: 'Documents function placeholder' })
+            };
+          };
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_NAME: salepoint_db
+          DB_USER: admin
+          DB_PASSWORD: 'SalePoint123!'
+          DOCUMENTS_BUCKET: !Ref DocumentBucket
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-api'
+      Description: 'Sale Point API Gateway'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resources and Methods will be added here
+  ProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: products
+
+  CustomersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: customers
+
+  SalesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: sales
+
+  InventoryResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: inventory
+  AnalyticsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: analytics
+  DocumentsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: documents
+
+  # API Gateway Methods and Integrations
+  
+  # Products Methods
+  ProductsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  ProductsPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  ProductsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Product ID resource
+  ProductIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !Ref ProductsResource
+      PathPart: '{productId}'
+
+  ProductIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  ProductIdPutMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  ProductIdDeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  # Customers Methods
+  CustomersGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  CustomersPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  CustomersOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Customer ID resource
+  CustomerIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !Ref CustomersResource
+      PathPart: '{customerId}'
+
+  CustomerIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomerIdResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  CustomerIdPutMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomerIdResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  CustomerIdDeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomerIdResource
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  # Sales Methods
+  SalesGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SalesResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesFunction.Arn}/invocations'
+
+  SalesPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SalesResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesFunction.Arn}/invocations'
+
+  SalesOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SalesResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Sale ID resource
+  SaleIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !Ref SalesResource
+      PathPart: '{saleId}'
+
+  SaleIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SaleIdResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesFunction.Arn}/invocations'
+
+  SaleIdPutMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SaleIdResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesFunction.Arn}/invocations'
+
+  # Inventory Methods
+  InventoryGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref InventoryResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${InventoryFunction.Arn}/invocations'
+
+  InventoryPutMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref InventoryResource
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${InventoryFunction.Arn}/invocations'
+
+  InventoryOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref InventoryResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Analytics Methods
+  AnalyticsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref AnalyticsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AnalyticsFunction.Arn}/invocations'
+
+  AnalyticsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref AnalyticsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Documents Methods
+  DocumentsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref DocumentsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentsFunction.Arn}/invocations'
+
+  DocumentsPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref DocumentsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentsFunction.Arn}/invocations'
+
+  DocumentsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref DocumentsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Document ID resource
+  DocumentIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !Ref DocumentsResource
+      PathPart: '{documentId}'
+
+  DocumentIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref DocumentIdResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentsFunction.Arn}/invocations'
+
+  DocumentIdDeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref DocumentIdResource
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentsFunction.Arn}/invocations'
+
+  # Lambda permissions for API Gateway
+  ProductsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProductsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  CustomersLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CustomersFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  SalesLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SalesFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  InventoryLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref InventoryFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  AnalyticsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AnalyticsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  DocumentsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DocumentsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  # API Gateway Deployment
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ProductsGetMethod
+      - ProductsPostMethod
+      - CustomersGetMethod
+      - CustomersPostMethod
+      - SalesGetMethod
+      - SalesPostMethod
+      - InventoryGetMethod
+      - AnalyticsGetMethod
+      - DocumentsGetMethod
+      - DocumentsPostMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: prod
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref SalePointVPC
+    Export:
+      Name: !Sub '${ProjectName}-vpc-id'
+
+  DatabaseEndpoint:
+    Description: RDS Database Endpoint
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub '${ProjectName}-db-endpoint'
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub '${ProjectName}-user-pool-id'
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub '${ProjectName}-user-pool-client-id'
+
+  ApiGatewayUrl:
+    Description: API Gateway URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Export:
+      Name: !Sub '${ProjectName}-api-url'
+
+  FrontendBucketUrl:
+    Description: Frontend S3 Bucket Website URL
+    Value: !GetAtt FrontendBucket.WebsiteURL
+    Export:
+      Name: !Sub '${ProjectName}-frontend-url'
+
+  CustomersTableName:
+    Description: DynamoDB Customers Table Name
+    Value: !Ref CustomersTable
+    Export:
+      Name: !Sub '${ProjectName}-customers-table'
+
+  OrdersTableName:
+    Description: DynamoDB Orders Table Name
+    Value: !Ref OrdersTable
+    Export:
+      Name: !Sub '${ProjectName}-orders-table'
+
+  ProductsTableName:
+    Description: DynamoDB Products Table Name
+    Value: !Ref ProductsTable
+    Export:
+      Name: !Sub '${ProjectName}-products-table'
+
+  SalesStaffTableName:
+    Description: DynamoDB Sales Staff Table Name
+    Value: !Ref SalesStaffTable
+    Export:
+      Name: !Sub '${ProjectName}-sales-staff-table'

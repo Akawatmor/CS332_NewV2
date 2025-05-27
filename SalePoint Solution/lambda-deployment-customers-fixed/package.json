@@ -1,0 +1,10 @@
+{
+  "name": "salepoint-customers-lambda",
+  "version": "1.0.0",
+  "description": "SalePoint Customers Lambda Function with Search Support",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1692.0",
+    "uuid": "^9.0.0"
+  }
+}

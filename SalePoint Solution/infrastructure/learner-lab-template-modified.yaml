@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Sale Point AWS Infrastructure - Learner Lab Compatible'
+
+Parameters:
+  ProjectName:
+    Type: String
+    De  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub 'arn:aws:s3:::${ProjectName}-frontend-${AWS::AccountId}-${AWS::Region}/*'epoint'
+    Description: 'Project name prefix for all resources'
+
+Resources:
+  # DynamoDB Tables
+  CustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-customers'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-orders'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-products'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: productId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: productId
+          KeyType: HASH
+
+  # Lambda Functions using LabRole
+  ProductsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-products'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({
+                message: 'Products API working!',
+                method: event.httpMethod
+              })
+            };
+          };
+
+  CustomersFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-customers'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({
+                message: 'Customers API working!',
+                method: event.httpMethod
+              })
+            };
+          };
+
+  SalesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-sales'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({
+                message: 'Sales API working!',
+                method: event.httpMethod
+              })
+            };
+          };
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+
+  InventoryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-inventory'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              },
+              body: JSON.stringify({
+                message: 'Inventory API working!',
+                method: event.httpMethod
+              })
+            };
+          };
+      Environment:
+        Variables:
+          PRODUCTS_TABLE: !Ref ProductsTable
+
+  # S3 Bucket for Frontend
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-frontend-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub 'arn:aws:s3:::${FrontendBucket}/*'
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-api'
+
+  ProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: products
+
+  CustomersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: customers
+
+  SalesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: sales
+
+  InventoryResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: inventory
+
+  ProductsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ProductsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProductsFunction.Arn}/invocations'
+
+  CustomersMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CustomersResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CustomersFunction.Arn}/invocations'
+
+  SalesMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SalesResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SalesFunction.Arn}/invocations'
+
+  InventoryMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref InventoryResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${InventoryFunction.Arn}/invocations'
+
+  ProductsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProductsFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  CustomersPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CustomersFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  SalesPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SalesFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  InventoryPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref InventoryFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ProductsMethod
+      - CustomersMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: prod
+
+Outputs:
+  ApiUrl:
+    Description: 'API Gateway URL'
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod'
+  
+  ProductsTable:
+    Description: 'Products DynamoDB Table'
+    Value: !Ref ProductsTable
+    
+  CustomersTable:
+    Description: 'Customers DynamoDB Table'
+    Value: !Ref CustomersTable
+    
+  OrdersTable:
+    Description: 'Orders DynamoDB Table'
+    Value: !Ref OrdersTable

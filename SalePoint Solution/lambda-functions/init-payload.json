@@ -1,0 +1,7 @@
+{
+  "httpMethod": "POST",
+  "path": "/initialize",
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}

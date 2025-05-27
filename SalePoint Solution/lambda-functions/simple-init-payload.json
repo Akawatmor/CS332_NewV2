@@ -1,0 +1,7 @@
+{
+  "httpMethod": "GET",
+  "path": "/init-db",
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "salepoint-products",
+  "version": "1.0.0",
+  "description": "SalePoint Products Lambda Function",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1400.0"
+  }
+}
