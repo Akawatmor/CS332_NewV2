@@ -1,9 +1,0 @@
-{
-  "httpMethod": "GET",
-  "path": "/products/init",
-  "pathParameters": null,
-  "queryStringParameters": null,
-  "headers": {
-    "Content-Type": "application/json"
-  }
-}

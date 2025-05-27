@@ -1,7 +1,0 @@
-{
-  "httpMethod": "GET",
-  "path": "/init-db",
-  "pathParameters": null,
-  "queryStringParameters": null,
-  "body": null
-}
